@@ -71,4 +71,21 @@ M.files_resume = function(opts)
   return core.fzf_files(opts)
 end
 
+
+M.my_files = function(opts)
+
+  opts = config.normalize_opts(opts, config.globals.files)
+  if not opts then return end
+
+  local command = get_files_cmd(opts)
+
+  opts.fzf_fn = fzf_helpers.cmd_line_transformer(
+    {cmd = command, cwd = opts.cwd},
+    function(x)
+      return core.my_make_entry_file(opts, x)
+    end)
+
+  return core.my_fzf_files(opts)
+end
+
 return M

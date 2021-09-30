@@ -513,5 +513,104 @@ M.set_fzf_interactive = function(opts, act_cmd, placeholder)
 
 end
 
+M.my_make_entry_file = function(opts, x)
+  local icon, hl
+  local ret = {}
+  local file = utils.strip_ansi_coloring(string.match(x, '[^:]*'))
+  if opts.cwd_only and path.starts_with_separator(file) then
+    local cwd = opts.cwd or vim.loop.cwd()
+    if not path.is_relative(file, cwd) then
+      return nil
+    end
+  end
+  if opts.cwd and #opts.cwd > 0 then
+    -- TODO: does this work if there are ANSI escape codes in x?
+    x = path.relative(x, opts.cwd)
+  end
+  --/usr/share/nvim/runtime/doc/quickfix.txt
+  if opts.file_icons then
+    local filename = path.tail(file)
+    local ext = path.extension(filename)
+    icon, hl = M.get_devicon(filename, ext)
+    if opts.color_icons then
+      -- extra workaround for issue #119 (or similars)
+      -- use default if we can't find the highlight ansi
+      local fn = utils.ansi_codes[hl] or utils.ansi_codes['dark_grey']
+      icon = fn(icon)
+    end
+    ret[#ret+1] = icon
+    ret[#ret+1] = utils.nbsp
+  end
+  if opts.git_icons then
+    local indicators = opts.diff_files and opts.diff_files[file] or utils.nbsp
+    for i=1,#indicators do
+      icon = indicators:sub(i,i)
+      local git_icon = config.globals.git.icons[icon]
+ 
+      ret[#ret+1] = icon
+    end
+    ret[#ret+1] = utils.nbsp
+  end
+
+  local directory = path.parent(file, false)
+  
+  if directory then
+    ret[#ret+1] = string.format('%-50s  | %s', path.tail(file), directory)
+  else
+    ret[#ret+1] = string.format('%-50s', path.tail(file), directory)
+  end
+  return table.concat(ret)
+end
+
+
+M.my_fzf_files = function(opts)
+
+  if not opts then return end
+
+  -- reset git tracking
+  opts.diff_files = nil
+  if opts.git_icons and not path.is_git_repo(opts.cwd, true) then opts.git_icons = false end
+
+  coroutine.wrap(function ()
+
+    if opts.cwd_only and not opts.cwd then
+      opts.cwd = vim.loop.cwd()
+    end
+
+    if opts.git_icons then
+      opts.diff_files = get_diff_files(opts)
+    end
+
+    local has_prefix = opts.file_icons or opts.git_icons or opts.lsp_icons
+    if not opts.filespec then
+      opts.filespec = utils._if(has_prefix, "{2}", "{1}")
+    end
+
+
+    local selected = M.fzf(opts, opts.fzf_fn)
+
+    if opts.post_select_cb then
+      opts.post_select_cb()
+    end
+
+    if not selected then return end
+
+    if #selected > 1 then
+      for i = 2, #selected do
+        selected[i] = path.my_entry_to_file(selected[i], opts.cwd).noicons
+        if opts.cb_selected then
+          local cb_ret = opts.cb_selected(opts, selected[i])
+          if cb_ret then selected[i] = cb_ret end
+        end
+      end
+    end
+    
+    actions.act(opts.actions, selected, opts)
+
+  end)()
+
+end
+
+
 
 return M

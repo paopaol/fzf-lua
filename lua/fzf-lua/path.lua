@@ -180,4 +180,35 @@ function M.git_root(cwd, noerr)
     return output[1]
 end
 
+
+function trim(s)
+  return (s:gsub("^%s*(.-)%s*$", "%1"))
+end
+
+function M.my_entry_to_file(entry, cwd)
+  entry = utils.strip_ansi_coloring(entry)
+  local sep = ":"
+  local s = strsplit(entry, sep)
+  local file = s[1]:match("[^"..utils.nbsp.."]*$")
+
+  local value = string.split(file, '|')
+  if #value == 2 then
+    file = vim.trim(value[2]) .. vim.trim(value[1])
+  else
+    file = vim.trim(value[1])
+  end
+
+  if cwd and #cwd>0 and not M.starts_with_separator(file) then
+    file = M.join({cwd, file})
+    noicons = M.join({cwd, noicons})
+  end
+  return {
+    bufnr = -1,
+    noicons = file,
+    path = file,
+    line = line or 1,
+    col  = col or 1,
+  }
+end
+
 return M

@@ -36,7 +36,7 @@ M.oldfiles = function(opts)
 
   opts.fzf_fn = function (cb)
     for _, x in ipairs(results) do
-      x = core.make_entry_file(opts, x)
+      x = core.my_make_entry_file(opts, x)
       if x then
         cb(x, function(err)
           if err then return end
@@ -53,7 +53,7 @@ M.oldfiles = function(opts)
     print("o:", x)
   end ]]
 
-  return core.fzf_files(opts)
+  return core.my_fzf_files(opts)
 end
 
 return M
