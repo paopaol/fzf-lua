@@ -100,7 +100,7 @@ local function add_buffer_entry(opts, buf, items, header_line)
   local leftbr = utils.ansi_codes.clear('[')
   local rightbr = utils.ansi_codes.clear(']')
   local bufname = string.format("%s:%s",
-    utils._if(#buf.info.name>0, path.relative(buf.info.name, vim.loop.cwd()), "[No Name]"),
+    utils._if(#buf.info.name>0, buf.info.name, vim.loop.cwd(), "[No Name]"),
     utils._if(buf.info.lnum>0, buf.info.lnum, ""))
   if buf.flag == '%' then
     flags = utils.ansi_codes.red(buf.flag) .. flags
@@ -131,7 +131,9 @@ local function add_buffer_entry(opts, buf, items, header_line)
       buficon = utils.ansi_codes[hl](buficon)
     end
   end
-  local item_str = string.format("%s%s%s%s%s%s%s%s",
+  local basename = path.basename(bufname)
+  local directory = path.parent(bufname) or ""
+  local item_str = string.format("%s%s%s%s%s%s%s%-40s%s",
     utils._if(opts._prefix, opts._prefix, ''),
     string.format("%-32s", bufnrstr),
     utils.nbsp,
@@ -139,7 +141,9 @@ local function add_buffer_entry(opts, buf, items, header_line)
     utils.nbsp,
     buficon,
     utils.nbsp,
-    bufname)
+    basename,
+    directory
+  )
   table.insert(items, item_str)
   return items
 end
