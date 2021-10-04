@@ -260,11 +260,11 @@ M.buffer_lines = function(opts)
     -- get the line number
     local line = tonumber(selected[2]:match(":(%d+):"))
 
+    vim.cmd("normal! m'")
     actions.act(opts.actions, selected, opts)
 
     if line then
       -- add current location to jumplist
-      vim.cmd("normal! m'")
       vim.api.nvim_win_set_cursor(0, {line, 0})
       vim.cmd("norm! zz")
     end
