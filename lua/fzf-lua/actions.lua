@@ -50,11 +50,11 @@ M.vimcmd_file = function(vimcmd, selected, opts)
       fullpath = path.join({opts.cwd or vim.loop.cwd(), fullpath})
     end
     if vimcmd ~= "e" or curbuf ~= fullpath then
+      vim.cmd("normal! m'")
       vim.cmd(vimcmd .. " " .. vim.fn.fnameescape(entry.path))
     end
     if entry.line > 1 or entry.col > 1 then
       -- add current location to jumplist
-      vim.cmd("normal! m`")
       vim.api.nvim_win_set_cursor(0, {tonumber(entry.line), tonumber(entry.col)-1})
       vim.cmd("norm! zz")
     end

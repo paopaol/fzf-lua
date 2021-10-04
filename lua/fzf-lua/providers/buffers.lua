@@ -264,7 +264,7 @@ M.buffer_lines = function(opts)
 
     if line then
       -- add current location to jumplist
-      vim.cmd("normal! m`")
+      vim.cmd("normal! m'")
       vim.api.nvim_win_set_cursor(0, {line, 0})
       vim.cmd("norm! zz")
     end
