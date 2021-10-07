@@ -13,6 +13,9 @@ local last_search = {}
 local M = {}
 
 local get_grep_cmd = function(opts, search_query, no_esc)
+  if opts.cmd_fn and type(opts.cmd_fn) == 'function' then
+    return opts.cmd_fn(opts, search_query, no_esc)
+  end
   if opts.raw_cmd and #opts.raw_cmd>0 then
     return opts.raw_cmd
   end
@@ -164,6 +167,12 @@ M.live_grep = function(opts)
     return get_grep_cmd(opts, query, true)
   end
 
+  if opts.experimental then
+    opts._transform_command = function(x)
+      return core.make_entry_file(opts, x)
+    end
+  end
+
   opts = core.set_fzf_line_args(opts)
   opts = core.set_fzf_interactive_cmd(opts)
   core.fzf_files(opts)
@@ -213,10 +222,7 @@ M.live_grep_native = function(opts)
     -- we need to escape them in the initial query
     opts.fzf_opts['--cmd-query'] = vim.fn.shellescape(utils.sk_escape(query))
     opts._fzf_cli_args = string.format("-i -c %s",
-          vim.fn.shellescape(
-            ("(cd %s && %s)"):format(
-              vim.fn.shellescape(opts.cwd or '.'),
-              reload_command)))
+          vim.fn.shellescape(reload_command))
   else
     opts.fzf_fn = {}
     if opts.exec_empty_query or (opts.search and #opts.search > 0) then
@@ -231,9 +237,7 @@ M.live_grep_native = function(opts)
     opts.fzf_opts['--query'] = vim.fn.shellescape(query)
     opts._fzf_cli_args = string.format('--bind=%s',
         vim.fn.shellescape(("change:reload:%s"):format(
-          ("(cd %s && %s || true)"):format(
-            vim.fn.shellescape(opts.cwd or '.'),
-            reload_command))))
+          ("%s || true"):format(reload_command))))
   end
 
   -- we cannot parse any entries as they're not getting called
@@ -266,6 +270,48 @@ M.live_grep_resume = function(opts)
       (opts.continue_last_search == nil and
       opts.repeat_last_search == nil and true) or
       (opts.continue_last_search or opts.repeat_last_search)
+  end
+  return M.live_grep(opts)
+end
+
+M.live_grep_glob = function(opts)
+  if not opts then opts = {} end
+  if vim.fn.executable("rg") ~= 1 then
+    utils.warn("'--glob|iglob' flags requires 'rg' (https://github.com/BurntSushi/ripgrep)")
+    return
+  end
+  opts.cmd_fn = function(opts, query, no_esc)
+
+    local glob_arg, glob_str = "", ""
+    local search_query = query or ""
+    if query:find(opts.glob_separator) then
+      search_query, glob_str = query:match("(.*)"..opts.glob_separator.."(.*)")
+      for _, s in ipairs(utils.strsplit(glob_str, "%s")) do
+        glob_arg = glob_arg .. (" %s %s")
+          :format(opts.glob_flag, vim.fn.shellescape(s))
+      end
+    end
+
+    -- copied over from get_grep_cmd
+    local search_path = ''
+    if opts.filespec and #opts.filespec>0 then
+      search_path = opts.filespec
+    elseif opts.filename and #opts.filename>0 then
+      search_path = vim.fn.shellescape(opts.filename)
+    end
+
+    if not (no_esc or opts.no_esc) then
+      search_query = utils.rg_escape(search_query)
+    end
+
+    -- do not escape at all
+    if not (no_esc == 2 or opts.no_esc == 2) then
+      search_query = vim.fn.shellescape(search_query)
+    end
+
+    local cmd = ("rg %s %s -- %s %s")
+      :format(opts.rg_opts, glob_arg, search_query, search_path)
+    return cmd
   end
   return M.live_grep(opts)
 end

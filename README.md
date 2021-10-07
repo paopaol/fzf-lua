@@ -6,7 +6,7 @@
 
 [Installation](#installation) • [Usage](#usage) • [Commands](#commands) • [Customization](#customization) • [Wiki](https://github.com/ibhagwan/fzf-lua/wiki)
 
-![screenshot](https://raw.githubusercontent.com/ibhagwan/fzf-lua/main/screenshots/main.png)
+![Demo](https://raw.githubusercontent.com/wiki/ibhagwan/fzf-lua/demo.gif)
 
 [fzf](https://github.com/junegunn/fzf) changed my life, it can change yours too, if you allow it.
 
@@ -137,6 +137,7 @@ vim.api.nvim_set_keymap('n', '<c-P>',
 | `lines`            | open buffers lines                         |
 | `blines`           | current buffer lines                       |
 | `tabs`             | open tabs                                  |
+| `args`             | argument list                              |
 
 ### Search
 | Command          | List                                       |
@@ -214,6 +215,8 @@ require'fzf-lua'.setup {
                                         -- "aboveleft new"   : split above
                                         -- "belowright vnew" : split right
                                         -- "aboveleft vnew   : split left
+    -- Only valid when using a float window
+    -- (i.e. when 'split' is not defined)
     win_height       = 0.85,            -- window height
     win_width        = 0.80,            -- window width
     win_row          = 0.30,            -- window row position (0=top, 1=bottom)
@@ -221,9 +224,50 @@ require'fzf-lua'.setup {
     -- win_border    = false,           -- window border? or borderchars?
     win_border       = { '╭', '─', '╮', '│', '╯', '─', '╰', '│' },
     hl_normal        = 'Normal',        -- window normal color
-    hl_border        = 'FloatBorder',   -- window border color
+    hl_border        = 'Normal',        -- change to 'FloatBorder' if exists
+    fullscreen       = false,           -- start fullscreen?
+    window_on_create = function()
+      -- called once upon creation of the fzf main window
+      -- can be used to add custom fzf-lua mappings, e.g:
+      --   vim.api.nvim_buf_set_keymap(0, "t", "<C-j>", "<Down>",
+      --     { silent = true, noremap = true })
+    end,
   },
-  -- fzf_bin             = 'sk',        -- use skim instead of fzf?
+  keymap = {
+    -- These override the default tables completely
+    -- no need to set to `false` to disable a bind
+    -- delete or modify is sufficient
+    builtin = {
+      -- neovim `:tmap` mappings for the fzf win
+      ["<F2>"]        = "toggle-fullscreen",
+      -- Only valid with the 'builtin' previewer
+      ["<F3>"]        = "toggle-preview-wrap",
+      ["<F4>"]        = "toggle-preview",
+      -- Rotate preview clockwise/counter-clockwise
+      ["<F5>"]        = "toggle-preview-ccw",
+      ["<F6>"]        = "toggle-preview-cw",
+      ["<S-down>"]    = "preview-page-down",
+      ["<S-up>"]      = "preview-page-up",
+      ["<S-left>"]    = "preview-page-reset",
+    },
+    fzf = {
+      -- fzf '--bind=' options
+      ["ctrl-u"]      = "unix-line-discard",
+      ["ctrl-f"]      = "half-page-down",
+      ["ctrl-b"]      = "half-page-up",
+      ["ctrl-a"]      = "beginning-of-line",
+      ["ctrl-e"]      = "end-of-line",
+      ["alt-a"]       = "toggle-all",
+      -- Only valid with fzf previewers (bat/cat/git/etc)
+      ["f3"]          = "toggle-preview-wrap",
+      ["f4"]          = "toggle-preview",
+      ["shift-down"]  = "preview-page-down",
+      ["shift-up"]    = "preview-page-up",
+    },
+  }
+  -- use skim instead of fzf?
+  -- https://github.com/lotabout/skim
+  -- fzf_bin          = 'sk',
   fzf_opts = {
     -- options are sent as `<left>=<right>`
     -- set to `false` to remove a flag
@@ -235,19 +279,8 @@ require'fzf-lua'.setup {
     ['--height']      = '100%',
     ['--layout']      = 'reverse',
   },
-  fzf_binds           = {               -- fzf '--bind=' options
-    ["f2"]            = "toggle-preview",
-    ["f3"]            = "toggle-preview-wrap",
-    ["shift-down"]    = "preview-page-down",
-    ["shift-up"]      = "preview-page-up",
-    ["ctrl-u"]        = "unix-line-discard",
-    ["ctrl-f"]        = "half-page-down",
-    ["ctrl-b"]        = "half-page-up",
-    ["ctrl-a"]        = "beginning-of-line",
-    ["ctrl-e"]        = "end-of-line",
-    ["alt-a"]         = "toggle-all",
-  },
-  --[[ fzf_colors = {                   -- fzf '--color=' options
+  -- fzf '--color=' options (optional)
+  --[[ fzf_colors = {
       ["fg"] = { "fg", "CursorLine" },
       ["bg"] = { "bg", "Normal" },
       ["hl"] = { "fg", "Comment" },
@@ -291,25 +324,16 @@ require'fzf-lua'.setup {
       args            = "--color",
     },
     builtin = {
+      delay           = 100,          -- delay(ms) displaying the preview
+                                      -- prevents lag on fast scrolling
       title           = true,         -- preview title?
       scrollbar       = true,         -- scrollbar?
       scrollchar      = '█',          -- scrollbar character
-      wrap            = false,        -- wrap lines?
       syntax          = true,         -- preview syntax highlight?
       syntax_limit_l  = 0,            -- syntax limit (lines), 0=nolimit
       syntax_limit_b  = 1024*1024,    -- syntax limit (bytes), 0=nolimit
-      expand          = false,        -- preview max size?
       hl_cursor       = 'Cursor',     -- cursor highlight
       hl_cursorline   = 'CursorLine', -- cursor line highlight
-      hl_range        = 'IncSearch',  -- ranger highlight (not yet in use)
-      keymap = {
-        toggle_full   = '<F2>',       -- toggle full screen
-        toggle_wrap   = '<F3>',       -- toggle line wrap
-        toggle_hide   = '<F4>',       -- toggle on/off (not yet in use)
-        page_up       = '<S-up>',     -- preview scroll up
-        page_down     = '<S-down>',   -- preview scroll down
-        page_reset    = '<S-left>',      -- reset scroll to orig pos
-      },
     },
   },
   -- provider setup
@@ -328,7 +352,7 @@ require'fzf-lua'.setup {
       ["ctrl-t"]      = actions.file_tabedit,
       ["alt-q"]       = actions.file_sel_to_qf,
       -- custom actions are available too
-      ["ctrl-y"]      = function(selected) print(selected[2]) end,
+      ["ctrl-y"]      = function(selected) print(selected[1]) end,
     }
   },
   git = {
@@ -349,7 +373,7 @@ require'fzf-lua'.setup {
     },
     commits = {
       prompt          = 'Commits❯ ',
-      cmd             = "git log --pretty=oneline --abbrev-commit --color --reflog",
+      cmd             = "git log --pretty=oneline --abbrev-commit --color",
       preview         = "git show --pretty='%Cred%H%n%Cblue%an%n%Cgreen%s' --color {1}",
       actions = {
         ["default"] = actions.git_checkout,
@@ -357,7 +381,7 @@ require'fzf-lua'.setup {
     },
     bcommits = {
       prompt          = 'BCommits❯ ',
-      cmd             = "git log --pretty=oneline --abbrev-commit --color --reflog",
+      cmd             = "git log --pretty=oneline --abbrev-commit --color",
       preview         = "git show --pretty='%Cred%H%n%Cblue%an%n%Cgreen%s' --color {1}",
       actions = {
         ["default"] = actions.git_buf_edit,
@@ -393,6 +417,20 @@ require'fzf-lua'.setup {
     git_icons         = true,           -- show git icons?
     file_icons        = true,           -- show file icons?
     color_icons       = true,           -- colorize file|git icons
+    -- 'true' enables file and git icons in 'live_grep'
+    -- degrades performance in large datasets, YMMV
+    experimental      = false,
+    -- live_grep_glob options
+    glob_flag         = "--iglob",  -- for case sensitive globs use '--glob'
+    glob_separator    = "%s%-%-"    -- query separator pattern (lua): ' --'
+  },
+  args = {
+    prompt            = 'Args❯ ',
+    files_only        = true,
+    actions = {
+      -- added on top of regular file actions
+      ["ctrl-x"]      = actions.arg_del,
+    }
   },
   oldfiles = {
     prompt            = 'History❯ ',
@@ -427,7 +465,7 @@ require'fzf-lua'.setup {
     live_preview      = true,       -- apply the colorscheme on preview?
     actions = {
       ["default"]     = actions.colorscheme,
-      ["ctrl-y"]      = function(selected) print(selected[2]) end,
+      ["ctrl-y"]      = function(selected) print(selected[1]) end,
     },
     winopts = {
       win_height        = 0.55,

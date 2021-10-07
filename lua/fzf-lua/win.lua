@@ -15,6 +15,36 @@ setmetatable(FzfWin, {
   end,
 })
 
+function FzfWin:setup_keybinds()
+  if not self:validate() then return end
+  if not self.keymap or not self.keymap.builtin then return end
+  local keymap_tbl = {
+    ['toggle-fullscreen']   = { module = 'win', fnc = 'toggle_fullscreen()' },
+  }
+  if self.previewer_is_builtin then
+    -- These maps are only valid for the builtin previewer
+    keymap_tbl = vim.tbl_deep_extend("keep", keymap_tbl, {
+      ['toggle-preview']      = { module = 'win', fnc = 'toggle_preview()' },
+      ['toggle-preview-wrap'] = { module = 'win', fnc = 'toggle_preview_wrap()' },
+      ['toggle-preview-cw']   = { module = 'win', fnc = 'toggle_preview_cw(1)' },
+      ['toggle-preview-ccw']  = { module = 'win', fnc = 'toggle_preview_cw(-1)' },
+      ['preview-page-up']     = { module = 'win', fnc = 'preview_scroll(-1)' },
+      ['preview-page-down']   = { module = 'win', fnc = 'preview_scroll(1)' },
+      ['preview-page-reset']  = { module = 'win', fnc = 'preview_scroll(0)' },
+    })
+  end
+  local function funcref_str(keymap)
+    return ([[<Cmd>lua require('fzf-lua.%s').%s<CR>]]):format(keymap.module, keymap.fnc)
+  end
+  for key, action in pairs(self.keymap.builtin) do
+    local keymap = keymap_tbl[action]
+    if keymap and not vim.tbl_isempty(keymap) and action ~= false then
+      api.nvim_buf_set_keymap(self.fzf_bufnr, 't', key,
+        funcref_str(keymap), {nowait = true, noremap = true})
+    end
+  end
+end
+
 local generate_layout = function(winopts)
   local row, col = winopts.row, winopts.col
   local height, width = winopts.height, winopts.width
@@ -123,6 +153,7 @@ local normalize_winopts = function(opts)
   local scrollchar = raw.scrollchar or winopts.scrollchar
   local hl_normal = raw.hl_normal or winopts.hl_normal
   local hl_border = raw.hl_border or winopts.hl_border
+  local fullscreen = raw.fullscreen or winopts.fullscreen
 
   -- normalize border option for nvim_open_win()
   if border == false then
@@ -153,6 +184,7 @@ local normalize_winopts = function(opts)
     -- builtin previewer params
     scrollchar = scrollchar,
     preview_pos = prev_pos, preview_size = prev_size,
+    fullscreen = fullscreen
   }
 end
 
@@ -170,11 +202,15 @@ function FzfWin:reset_win_highlights(win, is_border)
   vim.api.nvim_win_set_option(win, 'winhighlight', hl)
 end
 
-function FzfWin:check_exit_status()
+function FzfWin:check_exit_status(exit_code)
   if not self:validate() then return end
-  local lines = vim.api.nvim_buf_get_lines(self.fzf_bufnr, 0, 1, false)
-  if lines and #lines[1]>0 then
-    utils.warn("fzf error: " .. lines[1])
+  if not exit_code or tonumber(exit_code) ~= 130 then
+    local lines = vim.api.nvim_buf_get_lines(self.fzf_bufnr, 0, 1, false)
+    -- this can happen before nvim-fzf returned exit code (PR #36)
+    if not exit_code and (not lines or #lines[1]==0) then return end
+    utils.warn(("fzf error %s: %s")
+      :format(exit_code or "<null>",
+        lines and #lines[1]>0 and lines[1] or "<null>"))
   end
 end
 
@@ -197,6 +233,11 @@ function FzfWin.autoclose()
   return _self._autoclose
 end
 
+local function opt_matches(opts, key, str)
+  local opt = opts[key] or config.globals[key]
+  return opt and opt:match(str)
+end
+
 function FzfWin:new(o)
   if _self then
     -- utils.warn("Please close fzf-lua before starting a new instance")
@@ -206,6 +247,10 @@ function FzfWin:new(o)
   o = o or {}
   self = setmetatable({}, { __index = self })
   self.winopts = normalize_winopts(o)
+  self.fullscreen = self.winopts.fullscreen
+  self.preview_wrap = not opt_matches(o, 'preview_wrap', 'nowrap')
+  self.preview_hidden = not opt_matches(o, 'preview_opts', 'nohidden')
+  self.keymap = o.keymap
   self.previewer = o.previewer
   self.previewer_type = o.previewer_type
   self._orphaned_bufs = {}
@@ -218,6 +263,9 @@ function FzfWin:attach_previewer(previewer)
   -- clear the previous previewer if existed
   if self._previewer and self._previewer.close then
     self._previewer:close()
+  end
+  if self._previewer and self._previewer.win_leave then
+    self._previewer:win_leave()
   end
   self._previewer = previewer
   self.previewer_is_builtin = previewer and type(previewer.display_entry) == 'function'
@@ -236,16 +284,16 @@ function FzfWin:fs_preview_layout(fs)
   local preview_pos = self.winopts.preview_pos
   local height_diff = 0
   local width_diff = 0
-  if preview_pos == 'down' or preview_pos == 'up'then
-    width_diff = vim.o.columns - border_winopts.width
+  if preview_pos == 'down' or preview_pos == 'up' then
+    width_diff = vim.o.columns - border_winopts.width - 1
     if preview_pos == 'down' then
-      height_diff = vim.o.lines - border_winopts.row - border_winopts.height - 3
+      height_diff = vim.o.lines - border_winopts.row - border_winopts.height - 2
     elseif preview_pos == 'up' then
       height_diff = border_winopts.row - border_winopts.height
     end
     prev_winopts.col = prev_winopts.col - width_diff/2
     border_winopts.col = border_winopts.col - width_diff/2
-  elseif preview_pos == 'left' or preview_pos == 'right'then
+  elseif preview_pos == 'left' or preview_pos == 'right' then
     height_diff = vim.o.lines - border_winopts.height - 2
     if preview_pos == 'left' then
       width_diff = border_winopts.col - border_winopts.width
@@ -312,7 +360,8 @@ function FzfWin:preview_layout()
 end
 
 function FzfWin:validate_preview()
-  return self.preview_winid and self.preview_winid > 0
+  return not self.closing
+    and self.preview_winid and self.preview_winid > 0
     and api.nvim_win_is_valid(self.preview_winid)
     and self.border_winid and self.border_winid > 0
     and api.nvim_win_is_valid(self.border_winid)
@@ -367,15 +416,16 @@ function FzfWin:update_border_buf()
 end
 
 function FzfWin:redraw_preview()
+  if not self.previewer_is_builtin or self.preview_hidden then return end
+
   self.prev_winopts, self.border_winopts = self:preview_layout()
   if vim.tbl_isempty(self.prev_winopts) or vim.tbl_isempty(self.border_winopts) then
       return -1, -1
   end
 
-  -- expand preview only if set by the previewer
-  if self._previewer and self._previewer.expand then
+  if self.fullscreen then
     self.prev_winopts, self.border_winopts =
-      self:fs_preview_layout(self._previewer.expand)
+      self:fs_preview_layout(self.fullscreen)
   end
 
   if self:validate_preview() then
@@ -406,17 +456,59 @@ function FzfWin:validate()
     and api.nvim_win_is_valid(self.fzf_winid)
 end
 
+function FzfWin:fs_fzf_layout(fs, winopts)
+  if not fs or self.winopts.split then
+    return winopts
+  end
+
+  if not self.previewer_is_builtin or self.preview_hidden then
+    -- fzf previewer, expand to fullscreen
+    winopts.col = 0
+    winopts.row = 0
+    winopts.width = vim.o.columns
+    winopts.height = vim.o.lines - 4
+  else
+    local preview_pos = self.winopts.preview_pos
+    if preview_pos == 'down' or preview_pos == 'up' then
+      winopts.col = 0
+      winopts.width = vim.o.columns
+      if preview_pos == 'down' then
+        winopts.height = winopts.height + winopts.row
+        winopts.row = 0
+      elseif preview_pos == 'up' then
+        winopts.height = winopts.height + (vim.o.lines-winopts.row-winopts.height-4)
+      end
+    elseif preview_pos == 'left' or preview_pos == 'right'then
+      winopts.row = 0
+      winopts.height = vim.o.lines - 4
+      if preview_pos == 'right' then
+        winopts.width = winopts.width + winopts.col
+        winopts.col = 0
+      elseif preview_pos == 'left' then
+        winopts.width = winopts.width + (vim.o.columns-winopts.col-winopts.width-1)
+      end
+    end
+  end
+
+  return winopts
+end
+
 function FzfWin:redraw()
     if self.winopts.split then return end
-    local hidden = self._previewer and self._previewer.hidden
+    local hidden = self._previewer and self.preview_hidden
     local relative = self.winopts.relative or 'editor'
     local columns, lines = vim.o.columns, vim.o.lines
     if relative == 'win' then
       columns, lines = vim.api.nvim_win_get_width(0), vim.api.nvim_win_get_height(0)
     end
 
-    local winopts = self.winopts
-    if self.layout and not hidden then winopts = self.layout.fzf end
+    -- must use clone or fullscreen overrides our values
+    local winopts = utils.tbl_deep_clone(self.winopts)
+    if self.layout and not hidden then
+      winopts = utils.tbl_deep_clone(self.layout.fzf)
+    end
+    if self.fullscreen then winopts = self:fs_fzf_layout(self.fullscreen, winopts) end
+
     local win_opts = {
       width = winopts.width or math.min(columns - 4, math.max(80, columns - 20)),
       height = winopts.height or math.min(lines - 4, math.max(20, lines - 10)),
@@ -461,6 +553,7 @@ function FzfWin:create()
     -- we can't reuse the fzf term buffer
     -- create a new tmp buffer for the fzf win
     self:set_tmp_buffer()
+    self:setup_keybinds()
     return
   end
 
@@ -494,13 +587,10 @@ function FzfWin:create()
   end
 
   -- create or redraw the preview win
-  local hidden = self._previewer and self._previewer.hidden
-  if not hidden then self:redraw_preview() end
+  self:redraw_preview()
 
-  -- setup the keybinds for the builtin previewer
-  if self._previewer and self._previewer.setup_keybinds then
-    self._previewer:setup_keybinds()
-  end
+  -- setup the keybinds
+  self:setup_keybinds()
 
   return {
     src_bufnr = self.src_bufnr,
@@ -515,14 +605,13 @@ function FzfWin:close_preview()
   if self._previewer and self._previewer.close then
     self._previewer:close()
   end
-  if not self:validate_preview() then return end
-  if vim.api.nvim_win_is_valid(self.border_winid) then
+  if self.border_winid and vim.api.nvim_win_is_valid(self.border_winid) then
     api.nvim_win_close(self.border_winid, true)
   end
-  if vim.api.nvim_buf_is_valid(self.border_buf) then
+  if self.border_buf and vim.api.nvim_buf_is_valid(self.border_buf) then
     vim.api.nvim_buf_delete(self.border_buf, {force=true})
   end
-  if vim.api.nvim_win_is_valid(self.preview_winid) then
+  if self.preview_winid and vim.api.nvim_win_is_valid(self.preview_winid) then
     api.nvim_win_close(self.preview_winid, true)
   end
   self.border_buf = nil
@@ -534,10 +623,10 @@ function FzfWin:close()
   -- prevents race condition with 'win_leave'
   self.closing = true
   self:close_preview()
-  if vim.api.nvim_win_is_valid(self.fzf_winid) then
+  if self.fzf_winid and vim.api.nvim_win_is_valid(self.fzf_winid) then
     vim.api.nvim_win_close(self.fzf_winid, {force=true})
   end
-  if vim.api.nvim_buf_is_valid(self.fzf_bufnr) then
+  if self.fzf_bufnr and vim.api.nvim_buf_is_valid(self.fzf_bufnr) then
     vim.api.nvim_buf_delete(self.fzf_bufnr, {force=true})
   end
   if self._orphaned_bufs then
@@ -564,6 +653,7 @@ function FzfWin.win_leave()
 end
 
 function FzfWin:update_scrollbar()
+  if not self:validate_preview() then return end
   local border_winid = self.border_winid
   local preview_winid = self.preview_winid
   local border_chars = strip_border_highlights(self.winopts.border)
@@ -614,6 +704,83 @@ function FzfWin:update_title(title)
   local suffix = fn.strcharpart(top, fn.strwidth(title) + 3, fn.strwidth(top))
   title = ('%s%s%s'):format(prefix, title, suffix)
   api.nvim_buf_set_lines(border_buf, 0, 1, 1, {title})
+end
+
+-- keybind methods below
+function FzfWin.toggle_fullscreen()
+  if not _self then return end
+  local self = _self
+  self.fullscreen = not self.fullscreen
+  if self and self:validate() then
+    self:redraw()
+  end
+  if self and self:validate_preview() then
+    self:redraw_preview()
+  end
+end
+
+function FzfWin.toggle_preview()
+  if not _self then return end
+  local self = _self
+  self.preview_hidden = not self.preview_hidden
+  if self.preview_hidden and self:validate_preview() then
+    self:close_preview()
+    self:redraw()
+  elseif not self.preview_hidden then
+    self:redraw()
+    self:redraw_preview()
+    if self._previewer and self._previewer.display_last_entry then
+      self._previewer:display_last_entry()
+    end
+  end
+  -- close_preview() calls FzfWin:close()
+  -- which will clear out our singleton so
+  -- we must save it again to call redraw
+  _self = self
+end
+
+function FzfWin.toggle_preview_wrap()
+  if not _self then return end
+  local self = _self
+  self.preview_wrap = not self.preview_wrap
+  if self and self:validate_preview() then
+    api.nvim_win_set_option(self.preview_winid, 'wrap', self.preview_wrap)
+  end
+end
+
+function FzfWin.toggle_preview_cw(direction)
+  if not _self or _self.winopts.split then return end
+  local self = _self
+  local pos = { 'up', 'right', 'down', 'left' }
+  local idx
+  for i=1,#pos do
+    if pos[i] == self.winopts.preview_pos then
+      idx = i
+      break
+    end
+  end
+  if not idx then return end
+  local newidx = direction>0 and idx+1 or idx-1
+  if newidx<1 then newidx = #pos end
+  if newidx>#pos then newidx = 1 end
+  self.winopts.preview_pos = pos[newidx]
+  self.layout = generate_layout(self.winopts)
+  self:close_preview()
+  self:redraw()
+  self:redraw_preview()
+  if self._previewer and self._previewer.display_last_entry then
+    self._previewer:display_last_entry()
+  end
+end
+
+function FzfWin.preview_scroll(direction)
+  if not _self then return end
+  local self = _self
+  if self:validate_preview()
+    and self._previewer
+    and self._previewer.scroll then
+    self._previewer:scroll(direction)
+  end
 end
 
 return FzfWin

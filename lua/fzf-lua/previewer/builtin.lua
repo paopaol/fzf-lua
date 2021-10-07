@@ -13,9 +13,6 @@ Previewer.help_tags = {}
 Previewer.man_pages = {}
 Previewer.marks = {}
 
--- signgleton instance used for our keymappings
-local _self = nil
-
 -- Constructors call on Previewer.base.<o>()
 for c, _ in pairs(Previewer) do
   setmetatable(Previewer[c], {
@@ -25,27 +22,6 @@ for c, _ in pairs(Previewer) do
   })
 end
 
-function Previewer.base:setup_keybinds()
-  if not self.win or not self.win.fzf_bufnr then return end
-  local keymap_tbl = {
-    toggle_full   = { module = 'previewer.builtin', fnc = 'base.toggle_full()' },
-    toggle_wrap   = { module = 'previewer.builtin', fnc = 'base.toggle_wrap()' },
-    toggle_hide   = { module = 'previewer.builtin', fnc = 'base.toggle_hide()' },
-    page_up       = { module = 'previewer.builtin', fnc = 'base.scroll(-1)' },
-    page_down     = { module = 'previewer.builtin', fnc = 'base.scroll(1)' },
-    page_reset    = { module = 'previewer.builtin', fnc = 'base.scroll(0)' },
-  }
-  local function funcref_str(keymap)
-    return ([[<Cmd>lua require('fzf-lua.%s').%s<CR>]]):format(keymap.module, keymap.fnc)
-  end
-  for action, key in pairs(self.keymap) do
-    local keymap = keymap_tbl[action]
-    if keymap and not vim.tbl_isempty(keymap) and key ~= false then
-      api.nvim_buf_set_keymap(self.win.fzf_bufnr, 't', key,
-        funcref_str(keymap), {nowait = true, noremap = true})
-    end
-  end
-end
 
 function Previewer.base:new(o, opts, fzf_win)
   self = setmetatable(previewer_base(o, opts), {
@@ -54,14 +30,12 @@ function Previewer.base:new(o, opts, fzf_win)
     )})
   self.type = "builtin"
   self.win = fzf_win
-  self.wrap = o.wrap
+  self.delay = o.delay
   self.title = o.title
   self.scrollbar = o.scrollbar
   if o.scrollchar and type(o.scrollchar) == 'string' then
     self.win.winopts.scrollchar = o.scrollchar
   end
-  self.expand = o.expand or o.fullscreen
-  self.hidden = o.hidden
   self.syntax = o.syntax
   self.syntax_delay = o.syntax_delay
   self.syntax_limit_b = o.syntax_limit_b
@@ -69,9 +43,7 @@ function Previewer.base:new(o, opts, fzf_win)
   self.hl_cursor = o.hl_cursor
   self.hl_cursorline = o.hl_cursorline
   self.hl_range = o.hl_range
-  self.keymap = o.keymap
   self.backups = {}
-  _self = self
   return self
 end
 
@@ -79,12 +51,11 @@ function Previewer.base:close()
   self:restore_winopts(self.win.preview_winid)
   self:clear_preview_buf()
   self.backups = {}
-  _self = nil
 end
 
 function Previewer.base:gen_winopts()
   return {
-    wrap            = self.wrap,
+    wrap            = self.win.preview_wrap,
     number          = true,
     relativenumber  = false,
     cursorline      = true,
@@ -172,20 +143,39 @@ function Previewer.base:display_entry(entry_str)
   -- store the new preview buffer
   self.preview_bufnr = self:clear_preview_buf()
 
-  -- specialized previewer populate function
-  self:populate_preview_buf(entry_str)
+  local populate_preview_buf = function(entry_str)
+    if not self.win or not self.win:validate_preview() then return end
 
-  -- is the preview a terminal buffer (alternative way)
-  --[[ local is_terminal =
-    vim.fn.getwininfo(self.win.preview_winid)[1].terminal == 1 ]]
+    -- specialized previewer populate function
+    self:populate_preview_buf(entry_str)
 
-  -- set preview window options
-  if not utils.is_term_buffer(self.preview_bufnr) then
-    self:set_winopts(self.win.preview_winid)
+    -- is the preview a terminal buffer (alternative way)
+    --[[ local is_terminal =
+      vim.fn.getwininfo(self.win.preview_winid)[1].terminal == 1 ]]
+
+    -- set preview window options
+    if not utils.is_term_buffer(self.preview_bufnr) then
+      self:set_winopts(self.win.preview_winid)
+    end
+
+    -- reset the preview window highlights
+    self.win:reset_win_highlights(self.win.preview_winid)
   end
 
-  -- reset the preview window highlights
-  self.win:reset_win_highlights(self.win.preview_winid)
+  if not self._entry_count then self._entry_count=1
+  else self._entry_count = self._entry_count+1 end
+  local entry_count = self._entry_count
+  if self.delay>0 then
+    vim.defer_fn(function()
+      -- only display if entry hasn't changed
+      if self._entry_count == entry_count then
+        populate_preview_buf(entry_str)
+      end
+    end, self.delay)
+  else
+    populate_preview_buf(entry_str)
+  end
+
 end
 
 function Previewer.base:action(_)
@@ -209,9 +199,7 @@ function Previewer.base:preview_window(_)
   end
 end
 
-function Previewer.base.scroll(direction)
-  if not _self then return end
-  local self = _self
+function Previewer.base:scroll(direction)
   local preview_winid = self.win.preview_winid
   if preview_winid < 0 or not direction then return end
 
@@ -251,43 +239,6 @@ function Previewer.base.scroll(direction)
   end
 end
 
-function Previewer.base.toggle_wrap()
-  if not _self then return end
-  local self = _self
-  self.wrap = not self.wrap
-  if self.win and self.win:validate_preview() then
-    api.nvim_win_set_option(self.win.preview_winid, 'wrap', self.wrap)
-  end
-end
-
-function Previewer.base.toggle_full()
-  if not _self then return end
-  local self = _self
-  self.expand = not self.expand
-  if self.win and self.win:validate_preview() then
-    self.win:redraw_preview()
-  end
-end
-
-function Previewer.base.toggle_hide()
-  if not _self then return end
-  local self = _self
-  self.hidden = not self.hidden
-  if self.win then
-    if self.win:validate_preview() then
-      self.win:close_preview()
-      self.win:redraw()
-    else
-      self.win:redraw()
-      self.win:redraw_preview()
-      self:display_last_entry()
-    end
-  end
-  -- close_preview() calls Previewer.base:close()
-  -- which will clear out our singleton so
-  -- we must save it again to call redraw
-  _self = self
-end
 
 function Previewer.buffer_or_file:new(o, opts, fzf_win)
   self = setmetatable(Previewer.base(o, opts, fzf_win), {
@@ -306,6 +257,7 @@ function Previewer.buffer_or_file:parse_entry(entry_str)
 end
 
 function Previewer.buffer_or_file:populate_preview_buf(entry_str)
+  if not self.win or not self.win:validate_preview() then return end
   local entry = self:parse_entry(entry_str)
   if entry.bufnr and api.nvim_buf_is_loaded(entry.bufnr) then
     -- must convert to number or our backup will have conflicting keys
@@ -316,10 +268,23 @@ function Previewer.buffer_or_file:populate_preview_buf(entry_str)
     self.preview_bufnr = bufnr
     self:preview_buf_post(entry)
   else
+    if entry.bufnr then
+      -- buffer was unloaded, can happen when calling `lines`
+      -- with `set nohidden`, fix entry.path since it contains
+      -- filename only
+      entry.path = path.relative(vim.api.nvim_buf_get_name(entry.bufnr), vim.loop.cwd())
+    end
     -- mark the buffer for unloading the next call
     self.preview_bufloaded = true
     -- make sure the file is readable (or bad entry.path)
     if not vim.loop.fs_stat(entry.path) then return end
+    if utils.perl_file_is_binary(entry.path) then
+      vim.api.nvim_buf_set_lines(self.preview_bufnr, 0, -1, false, {
+        "Preview is not supported for binary files."
+      })
+      self:preview_buf_post(entry)
+      return
+    end
     -- read the file into the buffer
     utils.read_file_async(entry.path, vim.schedule_wrap(function(data)
       if not vim.api.nvim_buf_is_valid(self.preview_bufnr) then
@@ -438,14 +403,15 @@ function Previewer.buffer_or_file:preview_buf_post(entry)
     set_cursor_hl(self, entry)
   end)
 
-  -- local ml = vim.bo[entry.bufnr].ml
-  -- vim.bo[entry.bufnr].ml = false
-
+  -- syntax highlighting
   if self.syntax then
-    vim.defer_fn(function()
+    if self.syntax_delay > 0 then
+      vim.defer_fn(function()
+        self:do_syntax(entry)
+      end, self.syntax_delay)
+    else
       self:do_syntax(entry)
-      -- vim.bo[entry.bufnr].ml = ml
-    end, self.syntax_delay)
+    end
   end
 
   self:update_border(entry)
@@ -526,13 +492,13 @@ function Previewer.help_tags:populate_preview_buf(entry_str)
 end
 
 function Previewer.help_tags:win_leave()
-  if vim.api.nvim_win_is_valid(self.help_winid) then
+  if self.help_winid and vim.api.nvim_win_is_valid(self.help_winid) then
     api.nvim_win_close(self.help_winid, true)
   end
-  if vim.api.nvim_buf_is_valid(self.help_bufnr) then
+  if self.help_bufnr and vim.api.nvim_buf_is_valid(self.help_bufnr) then
     vim.api.nvim_buf_delete(self.help_bufnr, {force=true})
   end
-  if vim.api.nvim_buf_is_valid(self.prev_help_bufnr) then
+  if self.prev_help_bufnr and vim.api.nvim_buf_is_valid(self.prev_help_bufnr) then
     vim.api.nvim_buf_delete(self.prev_help_bufnr, {force=true})
   end
   self.help_winid = nil

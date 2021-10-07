@@ -28,11 +28,37 @@ M.globals = {
     win_border          = true,
     borderchars         = { '╭', '─', '╮', '│', '╯', '─', '╰', '│' },
     hl_normal           = 'Normal',
-    hl_border           = 'FloatBorder',
-    --[[ window_on_create = function()
-      -- Set popup background same as normal windows
-      vim.cmd("set winhl=Normal:Normal,FloatBorder:FloatBorder")
-    end, ]]
+    hl_border           = 'Normal',
+    fullscreen          = false,
+    window_on_create = function()
+      -- vim.cmd("set winhl=Normal:Normal,FloatBorder:Normal")
+    end,
+  },
+  keymap = {
+    builtin = {
+      ["<F2>"]      = "toggle-fullscreen",
+      -- Only valid with the 'builtin' previewer
+      ["<F3>"]      = "toggle-preview-wrap",
+      ["<F4>"]      = "toggle-preview",
+      ["<F5>"]      = "toggle-preview-ccw",
+      ["<F6>"]      = "toggle-preview-cw",
+      ["<S-down>"]  = "preview-page-down",
+      ["<S-up>"]    = "preview-page-up",
+      ["<S-left>"]  = "preview-page-reset",
+    },
+    fzf = {
+      ["ctrl-u"]        = "unix-line-discard",
+      ["ctrl-f"]        = "half-page-down",
+      ["ctrl-b"]        = "half-page-up",
+      ["ctrl-a"]        = "beginning-of-line",
+      ["ctrl-e"]        = "end-of-line",
+      ["alt-a"]         = "toggle-all",
+      -- Only valid with fzf previewers (bat/cat/git/etc)
+      ["f3"]            = "toggle-preview-wrap",
+      ["f4"]            = "toggle-preview",
+      ["shift-down"]    = "preview-page-down",
+      ["shift-up"]      = "preview-page-up",
+    },
   },
   fzf_bin             = nil,
   fzf_opts = {
@@ -41,25 +67,6 @@ M.globals = {
     ['--info']        = 'inline',
     ['--height']      = '100%',
     ['--layout']      = 'reverse',
-  },
-  fzf_binds = {
-    -- <F2>        toggle preview
-    -- <F3>        toggle preview text wrap
-    -- <C-f>|<C-b> half page down|up
-    -- <S-d>|<S-u> preview page down|up
-    -- <C-u>       clear query
-    -- <A-a>       toggle select-all
-    -- <A-q>       send selected to quickfix
-    ["f2"]            = "toggle-preview",
-    ["f3"]            = "toggle-preview-wrap",
-    ["shift-down"]    = "preview-page-down",
-    ["shift-up"]      = "preview-page-up",
-    ["ctrl-u"]        = "unix-line-discard",
-    ["ctrl-f"]        = "half-page-down",
-    ["ctrl-b"]        = "half-page-up",
-    ["ctrl-a"]        = "beginning-of-line",
-    ["ctrl-e"]        = "end-of-line",
-    ["alt-a"]         = "toggle-all",
   },
   preview_border      = 'border',
   preview_wrap        = 'nowrap',
@@ -98,27 +105,18 @@ M.globals = {
       _ctor           = previewers.fzf.git_diff,
     },
     builtin = {
+      -- default preview delay 100ms, same as native fzf preview
+      -- https://github.com/junegunn/fzf/issues/2417#issuecomment-809886535
+      delay           = 100,
       title           = true,
       scrollbar       = true,
       scrollchar      = '█',
-      wrap            = false,
       syntax          = true,
       syntax_delay    = 0,
       syntax_limit_l  = 0,
       syntax_limit_b  = 1024*1024,
-      expand          = false,
-      hidden          = false,
       hl_cursor       = 'Cursor',
       hl_cursorline   = 'CursorLine',
-      hl_range        = 'IncSearch',
-      keymap = {
-        toggle_full   = '<F2>',       -- toggle full screen
-        toggle_wrap   = '<F3>',       -- toggle line wrap
-        toggle_hide   = '<F4>',       -- toggle on/off (not yet in use)
-        page_up       = '<S-up>',     -- preview scroll up
-        page_down     = '<S-down>',   -- preview scroll down
-        page_reset    = '<S-left>',   -- reset scroll to orig pos
-      },
       _ctor           = previewers.builtin.buffer_or_file,
     },
   },
@@ -136,7 +134,7 @@ M.globals.files = {
       [[--color never --type f --hidden --follow ]] ..
       [[--exclude .git --exclude node_modules --exclude '*.pyc']],
     actions = {
-      ["default"]       = actions.file_edit,
+      ["default"]       = actions.file_edit_or_qf,
       ["ctrl-s"]        = actions.file_split,
       ["ctrl-v"]        = actions.file_vsplit,
       ["ctrl-t"]        = actions.file_tabedit,
@@ -169,7 +167,7 @@ M.globals.git = {
     },
     commits = {
       prompt        = 'Commits> ',
-      cmd           = "git log --pretty=oneline --abbrev-commit --color --reflog",
+      cmd           = "git log --pretty=oneline --abbrev-commit --color",
       preview       = "git show --pretty='%Cred%H%n%Cblue%an%n%Cgreen%s' --color {1}",
       actions = {
         ["default"] = actions.git_checkout,
@@ -177,7 +175,7 @@ M.globals.git = {
     },
     bcommits = {
       prompt        = 'BCommits> ',
-      cmd           = "git log --pretty=oneline --abbrev-commit --color --reflog",
+      cmd           = "git log --pretty=oneline --abbrev-commit --color",
       preview       = "git show --pretty='%Cred%H%n%Cblue%an%n%Cgreen%s' --color {1}",
       actions = {
         ["default"] = actions.git_buf_edit,
@@ -199,6 +197,7 @@ M.globals.git = {
       ["D"]         = { icon = "D", color = "red" },
       ["A"]         = { icon = "A", color = "green" },
       ["R"]         = { icon = "R", color = "yellow" },
+      ["C"]         = { icon = "C", color = "yellow" },
       ["?"]         = { icon = "?", color = "magenta" },
     },
   }
@@ -210,10 +209,23 @@ M.globals.grep = {
     file_icons          = true and M._has_devicons,
     color_icons         = true,
     git_icons           = true,
-    grep_opts           = "--line-number --recursive --color=auto --perl-regexp",
+    grep_opts           = "--binary-files=without-match --line-number --recursive --color=auto --perl-regexp",
     rg_opts             = "--column --line-number --no-heading --color=always --smart-case",
     actions             = M.globals.files.actions,
+    -- live_grep_glob options
+    glob_flag           = "--iglob",  -- for case sensitive globs use '--glob'
+    glob_separator      = "%s%-%-"    -- query separator pattern (lua): ' --'
   }
+M.globals.args = {
+    previewer           = function() return M.globals.default_previewer end,
+    prompt              = 'Args> ',
+    files_only          = true,
+    file_icons          = true and M._has_devicons,
+    color_icons         = true,
+    git_icons           = true,
+    actions             = M.globals.files.actions,
+  }
+M.globals.args.actions["ctrl-x"] = actions.arg_del
 M.globals.oldfiles = {
     previewer           = function() return M.globals.default_previewer end,
     prompt              = 'History> ',
@@ -507,6 +519,7 @@ function M.normalize_opts(opts, defaults)
   if not opts then opts = {} end
   if not opts.fzf_opts then opts.fzf_opts = {} end
   opts = vim.tbl_deep_extend("keep", opts, defaults)
+  opts.keymap = vim.tbl_deep_extend("keep", opts.keymap or {}, M.globals.keymap)
   if defaults.winopts then
     if not opts.winopts then opts.winopts = {} end
     opts.winopts = vim.tbl_deep_extend("keep", opts.winopts, defaults.winopts)
@@ -524,6 +537,10 @@ function M.normalize_opts(opts, defaults)
 
   if opts.cwd and #opts.cwd > 0 then
     opts.cwd = vim.fn.expand(opts.cwd)
+    if not vim.loop.fs_stat(opts.cwd) then
+      utils.warn(("Unable to access '%s', removing 'cwd' option."):format(opts.cwd))
+      opts.cwd = nil
+    end
   end
 
   local executable = function(binary, fncerr,  strerr)

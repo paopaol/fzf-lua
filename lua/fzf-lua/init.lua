@@ -2,7 +2,6 @@ if not pcall(require, "fzf") then
   return
 end
 
-local fzf = require "fzf"
 local utils = require "fzf-lua.utils"
 local config = require "fzf-lua.config"
 
@@ -15,11 +14,27 @@ function M.setup(opts)
   for k, _ in pairs(globals.winopts) do
     if opts[k] ~= nil then globals.winopts[k] = opts[k] end
   end
-  -- deprecate message for window_on_create
-  if globals.winopts.window_on_create then
-    utils.warn(
-      "setting highlights using 'window_on_create' is " ..
-      "deprecated, use 'winopts.hl_xxx' instead.")
+  -- backward compatibility for 'fzf_binds'
+  if opts.fzf_binds then
+    utils.warn("'fzf_binds' is deprecated, moved under 'keymap.fzf', see ':help fzf-lua-customization'")
+    globals.keymap.fzf = opts.fzf_binds
+  end
+  -- do not merge, override the bind tables
+  if opts.keymap and opts.keymap.fzf then
+    globals.keymap.fzf = opts.keymap.fzf
+  end
+  if opts.keymap and opts.keymap.builtin then
+    globals.keymap.builtin = opts.keymap.builtin
+  end
+  -- deprecated options
+  if globals.previewers.builtin.keymap then
+    utils.warn("'previewers.builtin.keymap' moved under 'keymap.builtin', see ':help fzf-lua-customization'")
+  end
+  if globals.previewers.builtin.wrap ~= nil then
+    utils.warn("'previewers.builtin.wrap' is not longer in use, set 'preview_wrap' to 'wrap' or 'nowrap' instead")
+  end
+  if globals.previewers.builtin.hidden ~= nil then
+    utils.warn("'previewers.builtin.hidden' is not longer in use, set 'preview_opts' to 'hidden' or 'nohidden' instead")
   end
   -- override BAT_CONFIG_PATH to prevent a
   -- conflct with '$XDG_DATA_HOME/bat/config'
@@ -44,10 +59,12 @@ M.fzf_files = require'fzf-lua.core'.fzf_files
 M.files = require'fzf-lua.providers.files'.files
 M.my_files = require'fzf-lua.providers.files'.my_files
 M.files_resume = require'fzf-lua.providers.files'.files_resume
+M.args = require'fzf-lua.providers.files'.args
 M.grep = require'fzf-lua.providers.grep'.grep
-M.live_grep = require'fzf-lua.providers.grep'.live_grep_native
+M.live_grep = require'fzf-lua.providers.grep'.live_grep
 M.live_grep_native = require'fzf-lua.providers.grep'.live_grep_native
 M.live_grep_resume = require'fzf-lua.providers.grep'.live_grep_resume
+M.live_grep_glob = require'fzf-lua.providers.grep'.live_grep_glob
 M.grep_last = require'fzf-lua.providers.grep'.grep_last
 M.grep_cword = require'fzf-lua.providers.grep'.grep_cword
 M.grep_cWORD = require'fzf-lua.providers.grep'.grep_cWORD

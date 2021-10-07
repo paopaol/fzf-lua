@@ -22,6 +22,14 @@ M._if = function(bool, a, b)
     end
 end
 
+M.strsplit = function(inputstr, sep)
+  local t={}
+  for str in string.gmatch(inputstr, "([^"..sep.."]+)") do
+    table.insert(t, str)
+  end
+  return t
+end
+
 function M.round(num, limit)
   if not num then return nil end
   if not limit then limit = 0.5 end
@@ -76,6 +84,32 @@ function M.sk_escape(str)
   return str:gsub('["`]', function(x)
     return '\\' .. x
   end)
+end
+
+-- TODO: why does `file --dereference --mime` return
+-- wrong result for some lua files ('charset=binary')?
+M.file_is_binary = function(filepath)
+  filepath = vim.fn.expand(filepath)
+  if vim.fn.executable("file") ~= 1 or
+     not vim.loop.fs_stat(filepath) then
+    return false
+  end
+  local out = M.io_system("file --dereference --mime " ..
+    vim.fn.shellescape(filepath))
+  return out:match("charset=binary") ~= nil
+end
+
+M.perl_file_is_binary = function(filepath)
+  filepath = vim.fn.expand(filepath)
+  if vim.fn.executable("perl") ~= 1 or
+     not vim.loop.fs_stat(filepath) then
+    return false
+  end
+  -- can also use '-T' to test for text files
+  -- `perldoc -f -x` to learn more about '-B|-T'
+  M.io_system("perl -E 'exit((-B $ARGV[0])?0:1);' " ..
+    vim.fn.shellescape(filepath))
+  return not M.shell_error()
 end
 
 M.read_file = function(filepath)
