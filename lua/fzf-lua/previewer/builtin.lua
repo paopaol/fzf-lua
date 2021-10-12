@@ -30,19 +30,12 @@ function Previewer.base:new(o, opts, fzf_win)
     )})
   self.type = "builtin"
   self.win = fzf_win
-  self.delay = o.delay
-  self.title = o.title
-  self.scrollbar = o.scrollbar
-  if o.scrollchar and type(o.scrollchar) == 'string' then
-    self.win.winopts.scrollchar = o.scrollchar
-  end
+  self.delay = self.win.winopts.preview.delay or 100
+  self.title = self.win.winopts.preview.title
   self.syntax = o.syntax
   self.syntax_delay = o.syntax_delay
   self.syntax_limit_b = o.syntax_limit_b
   self.syntax_limit_l = o.syntax_limit_l
-  self.hl_cursor = o.hl_cursor
-  self.hl_cursorline = o.hl_cursorline
-  self.hl_range = o.hl_range
   self.backups = {}
   return self
 end
@@ -234,9 +227,7 @@ function Previewer.base:scroll(direction)
       end)
     end
   end
-  if self.scrollbar then
-    self.win:update_scrollbar()
-  end
+  self.win:update_scrollbar()
 end
 
 
@@ -373,8 +364,8 @@ local function set_cursor_hl(self, entry)
 
     fn.clearmatches()
 
-    if lnum and lnum > 0 and col and col > 1 then
-      fn.matchaddpos(self.hl_cursor, {{lnum, math.max(1, col)}}, 11)
+    if self.win.winopts.hl.cursor and lnum and lnum > 0 and col and col > 1 then
+      fn.matchaddpos(self.win.winopts.hl.cursor, {{lnum, math.max(1, col)}}, 11)
     end
 end
 
@@ -391,9 +382,7 @@ function Previewer.buffer_or_file:update_border(entry)
     end
     self.win:update_title(title)
   end
-  if self.scrollbar then
-    self.win:update_scrollbar()
-  end
+  self.win:update_scrollbar()
 end
 
 function Previewer.buffer_or_file:preview_buf_post(entry)
@@ -425,6 +414,7 @@ function Previewer.help_tags:new(o, opts, fzf_win)
     )})
   self.split = o.split
   self.help_cmd = o.help_cmd or "help"
+  self.filetype = "help"
   self:init_help_win()
   return self
 end
@@ -446,7 +436,7 @@ end
 
 function Previewer.help_tags:exec_cmd(str)
   str = str or ''
-  vim.cmd(("%s %s %s"):format(self.split, self.help_cmd, str))
+  vim.cmd(("noauto %s %s %s"):format(self.split, self.help_cmd, str))
 end
 
 function Previewer.help_tags:parse_entry(entry_str)
@@ -472,14 +462,13 @@ function Previewer.help_tags:populate_preview_buf(entry_str)
   vim.api.nvim_win_call(self.help_winid, function()
     self.prev_help_bufnr = api.nvim_get_current_buf()
     self:exec_cmd(entry)
+    vim.api.nvim_buf_set_option(0, 'filetype', self.filetype)
     self.preview_bufnr = api.nvim_get_current_buf()
     self.orig_pos = api.nvim_win_get_cursor(0)
   end)
   api.nvim_win_set_buf(self.win.preview_winid, self.preview_bufnr)
   api.nvim_win_set_cursor(self.win.preview_winid, self.orig_pos)
-  if self.scrollbar then
-    self.win:update_scrollbar()
-  end
+  self.win:update_scrollbar()
   if self.prev_help_bufnr ~= self.preview_bufnr and
     -- only delete the help buffer when the help
     -- tag triggers opening a different help file
@@ -506,21 +495,33 @@ function Previewer.help_tags:win_leave()
   self.prev_help_bufnr = nil
 end
 
--- inherit from help_tags
+-- inherit from help_tags for the specialized
+-- 'gen_winopts()' without ':set  number'
 function Previewer.man_pages:new(o, opts, fzf_win)
   self = setmetatable(Previewer.base(o, opts, fzf_win), {
     __index = vim.tbl_deep_extend("keep",
       self, Previewer.help_tags, Previewer.base
     )})
-  self.split = o.split
-  self.help_cmd = o.help_cmd or "Man"
-  self:init_help_win("echo")
+  self.filetype = "man"
+  self.cmd = o.cmd or "man -c %s | col -b"
   return self
 end
 
 function Previewer.man_pages:parse_entry(entry_str)
   return entry_str:match("[^[,( ]+")
   -- return require'fzf-lua.providers.manpages'.getmanpage(entry_str)
+end
+
+function Previewer.man_pages:populate_preview_buf(entry_str)
+  local entry = self:parse_entry(entry_str)
+  -- mark the buffer for unloading the next call
+  self.preview_bufloaded = true
+  local cmd = self.cmd:format(entry)
+  local output, _ = utils.io_systemlist(cmd)
+  -- vim.api.nvim_buf_set_option(self.preview_bufnr, 'modifiable', true)
+  vim.api.nvim_buf_set_lines(self.preview_bufnr, 0, -1, false, output)
+  vim.api.nvim_buf_set_option(self.preview_bufnr, 'filetype', self.filetype)
+  self.win:update_scrollbar()
 end
 
 function Previewer.marks:new(o, opts, fzf_win)

@@ -327,7 +327,7 @@ M.code_actions = function(opts)
   -- "apply action" as default function
   if not opts.actions then opts.actions = {} end
   opts.actions.default = (function(selected)
-    local idx = selected[2]:match("(%d+)")
+    local idx = selected[1]:match("(%d+)")
     local action = opts.code_actions[idx]
     if not action then return end
     if action.edit or type(action.command) == 'table' then
@@ -395,7 +395,7 @@ M.diagnostics = function(opts)
   if not opts then return end
 
   local lsp_clients = vim.lsp.buf_get_clients(0)
-  if #lsp_clients == 0 then
+  if utils.tbl_isempty(lsp_clients) then
     utils.info("LSP: no client attached")
     return
   end
@@ -568,7 +568,7 @@ local function check_capabilities(feature)
   if supported_client then
     return true
   else
-    if #clients == 0 then
+    if utils.tbl_isempty(clients) then
       utils.info("LSP: no client attached")
     else
       utils.info("LSP: server does not support " .. feature)
