@@ -99,7 +99,7 @@ M.globals = {
   fzf_bin             = nil,
   fzf_opts = {
     ['--ansi']        = '',
-    ['--prompt']      = ' >',
+    ['--prompt']      = '> ',
     ['--info']        = 'inline',
     ['--height']      = '100%',
     ['--layout']      = 'reverse',
@@ -133,7 +133,7 @@ M.globals = {
       _ctor           = previewers.fzf.git_diff,
     },
     man = {
-      cmd             = "man -c %s | col -b",
+      cmd             = "man -c %s | col -bx",
       _ctor           = previewers.builtin.man_pages,
     },
     builtin = {
@@ -234,7 +234,7 @@ M.globals.grep = {
     color_icons         = true,
     git_icons           = true,
     grep_opts           = "--binary-files=without-match --line-number --recursive --color=auto --perl-regexp",
-    rg_opts             = "--column --line-number --no-heading --color=always --smart-case",
+    rg_opts             = "--column --line-number --no-heading --color=always --smart-case --max-columns=512",
     actions             = M.globals.files.actions,
     -- live_grep_glob options
     glob_flag           = "--iglob",  -- for case sensitive globs use '--glob'
@@ -596,6 +596,9 @@ function M.normalize_opts(opts, defaults)
      -- ,("'%s' is now defined under '%s'"):format(v, k))
   end
 
+  -- Default prompt
+  opts.prompt = opts.prompt or opts.fzf_opts["--prompt"]
+
   if type(opts.previewer) == 'function' then
     -- we use a function so the user can override
     -- globals.winopts.preview.default
@@ -636,6 +639,9 @@ function M.normalize_opts(opts, defaults)
 
   -- are we using skim?
   opts._is_skim = opts.fzf_bin:find('sk') ~= nil
+
+  -- libuv.spawn_nvim_fzf_cmd() pid callback
+  opts._pid_cb = function(pid) opts._pid = pid end
 
   -- mark as normalized
   opts._normalized = true

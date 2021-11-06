@@ -67,19 +67,33 @@ M.vimcmd_file = function(vimcmd, selected, opts)
   local curbuf = vim.api.nvim_buf_get_name(0)
   for i = 1, #selected do
     local entry = path.entry_to_file(selected[i])
-    -- only change buffer if we need to (issue #122)
-    local fullpath = entry.path
-    if not path.starts_with_separator(fullpath) then
-      fullpath = path.join({opts.cwd or vim.loop.cwd(), fullpath})
-    end
-    if vimcmd ~= "e" or curbuf ~= fullpath then
-      vim.cmd("normal! m'")
-      vim.cmd(vimcmd .. " " .. vim.fn.fnameescape(entry.path))
-    end
-    if entry.line > 1 or entry.col > 1 then
-      -- add current location to jumplist
-      vim.api.nvim_win_set_cursor(0, {tonumber(entry.line), tonumber(entry.col)-1})
+    -- Java LSP entries, 'jdt://...'
+    if entry.uri then
+      vim.cmd("normal! m`")
+      vim.lsp.util.jump_to_location(entry)
       vim.cmd("norm! zvzz")
+    else
+      -- only change buffer if we need to (issue #122)
+      local fullpath = entry.path
+      if not path.starts_with_separator(fullpath) then
+        fullpath = path.join({opts.cwd or vim.loop.cwd(), fullpath})
+      end
+      if vimcmd == 'e' and curbuf ~= fullpath
+         and not vim.o.hidden and
+         utils.buffer_is_dirty(nil, true) then
+         -- warn the user when trying to switch from a dirty buffer
+         -- when `:set nohidden`
+         return
+      end
+      if vimcmd ~= "e" or curbuf ~= fullpath then
+        vim.cmd(vimcmd .. " " .. vim.fn.fnameescape(entry.path))
+      end
+      if entry.line > 1 or entry.col > 1 then
+        -- add current location to jumplist
+        vim.cmd("normal! m`")
+        vim.api.nvim_win_set_cursor(0, {tonumber(entry.line), tonumber(entry.col)-1})
+        vim.cmd("norm! zvzz")
+      end
     end
   end
 end
@@ -137,6 +151,13 @@ end
 M.vimcmd_buf = function(vimcmd, selected, _)
   for i = 1, #selected do
     local bufnr = string.match(selected[i], "%[(%d+)")
+    if vimcmd == 'b'
+      and not vim.o.hidden and
+      utils.buffer_is_dirty(nil, true) then
+      -- warn the user when trying to switch from a dirty buffer
+      -- when `:set nohidden`
+      return
+    end
     vim.cmd(vimcmd .. " " .. bufnr)
   end
 end
@@ -163,7 +184,11 @@ end
 
 M.buf_del = function(selected, opts)
   local vimcmd = "bd"
-  M.vimcmd_buf(vimcmd, selected, opts)
+  local bufnrs = vim.tbl_filter(function(line)
+    local b = tonumber(line:match("%[(%d+)"))
+    return not utils.buffer_is_dirty(b, true)
+  end, selected)
+  M.vimcmd_buf(vimcmd, bufnrs, opts)
 end
 
 M.buf_switch = function(selected, _)
@@ -272,7 +297,12 @@ end
 
 
 M.git_switch = function(selected, opts)
-  local cmd = path.git_cwd("git switch ", opts.cwd)
+  local cmd = path.git_cwd("git checkout ", opts.cwd)
+  local git_ver = utils.git_version()
+  -- git switch was added with git version 2.23
+  if git_ver and git_ver >= 2.23 then
+    cmd = path.git_cwd("git switch ", opts.cwd)
+  end
   -- remove anything past space
   local branch = selected[1]:match("[^ ]+")
   -- do nothing for active branch

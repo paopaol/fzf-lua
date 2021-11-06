@@ -1,9 +1,11 @@
-local fzf = require "fzf"
+-- local fzf = require "fzf"
+local fzf = require "fzf-lua.fzf"
 local path = require "fzf-lua.path"
 local utils = require "fzf-lua.utils"
 local config = require "fzf-lua.config"
 local actions = require "fzf-lua.actions"
 local win = require "fzf-lua.win"
+local libuv = require "fzf-lua.libuv"
 
 local M = {}
 
@@ -46,6 +48,7 @@ M.fzf = function(opts, contents)
   fzf_win:create()
   local selected, exit_code = fzf.raw_fzf(contents, M.build_fzf_cli(opts),
     { fzf_binary = opts.fzf_bin, fzf_cwd = opts.cwd })
+  utils.process_kill(opts._pid)
   fzf_win:check_exit_status(exit_code)
   if fzf_win:autoclose() == nil or fzf_win:autoclose() then
     fzf_win:close()
@@ -331,7 +334,7 @@ M.fzf_files = function(opts)
 
     if #selected > 1 then
       for i = 2, #selected do
-        selected[i] = path.entry_to_file(selected[i], opts.cwd).noicons
+        selected[i] = path.entry_to_file(selected[i], opts.cwd).stripped
         if opts.cb_selected then
           local cb_ret = opts.cb_selected(opts, selected[i])
           if cb_ret then selected[i] = cb_ret end
@@ -346,22 +349,6 @@ M.fzf_files = function(opts)
 
 end
 
--- save to upvalue for performance reasons
-local string_byte = string.byte
-local string_sub = string.sub
-
-local function find_last_newline(str)
-  for i=#str,1,-1 do
-    if string_byte(str, i) == 10 then
-        return i
-    end
-  end
-end
-
--- https://github.com/luvit/luv/blob/master/docs.md
--- uv.spawn returns tuple: handle, pid
-local _, _pid
-
 M.set_fzf_interactive_cmd = function(opts)
 
   if not opts then return end
@@ -369,131 +356,7 @@ M.set_fzf_interactive_cmd = function(opts)
   -- fzf already adds single quotes around the placeholder when expanding
   -- for skim we surround it with double quotes or single quote searches fail
   local placeholder = utils._if(opts._is_skim, '"{}"', '{q}')
-
-  local uv = vim.loop
-  local raw_async_act = require("fzf.actions").raw_async_action(function(pipe, args)
-    local shell_cmd = opts._reload_command(args[1])
-    local output_pipe = uv.new_pipe(false)
-    local error_pipe = uv.new_pipe(false)
-    local write_cb_count = 0
-    local prev_line_content = nil
-
-    local shell = vim.env.SHELL or "sh"
-
-    local finish = function()
-      if pipe  and not uv.is_closing(pipe) then
-        uv.close(pipe)
-        pipe = nil
-      end
-      output_pipe:shutdown()
-      error_pipe:shutdown()
-    end
-
-    -- terminate previously running commands
-    if _pid and type(uv.os_getpriority(_pid)) == 'number' then
-      uv.kill(_pid, 9)
-    end
-
-    _, _pid = uv.spawn(shell, {
-      args = { "-c", shell_cmd },
-      stdio = { nil, output_pipe, error_pipe },
-      cwd = opts.cwd
-    }, function(code, signal)
-      output_pipe:read_stop()
-      error_pipe:read_stop()
-      output_pipe:close()
-      error_pipe :close()
-      if write_cb_count==0 then
-        -- only close if all our uv.write
-        -- calls are completed
-        finish()
-      end
-    end)
-
-    -- save current process pid
-    local pid = _pid
-
-    local function write_cb(data)
-      if not pipe then return end
-      if pid ~= _pid then
-        -- safety, I never saw this get called
-        -- will set `pipe = nill`
-        finish()
-        return
-      end
-      write_cb_count = write_cb_count + 1
-      uv.write(pipe, data, function(err)
-        if err then
-          -- sometime fails?
-          -- assert(not err)
-          finish()
-        end
-        write_cb_count = write_cb_count - 1
-        if write_cb_count == 0 and uv.is_closing(output_pipe) then
-          -- spawn callback already called and did not close the pipe
-          -- due to write_cb_count>0, since this is the last call
-          -- we can close the fzf pipe
-          finish()
-        end
-      end)
-    end
-
-    local function process_lines(str)
-      if not opts._transform_command then
-        write_cb(str)
-      else
-        write_cb(str:gsub("[^\n]+",
-          function(x)
-            return opts._transform_command(x)
-          end))
-      end
-    end
-
-    local read_cb = function(err, data)
-
-      if err then
-        assert(not err)
-        finish()
-      end
-      if not data then
-        return
-      end
-
-      if prev_line_content then
-          data = prev_line_content .. data
-          prev_line_content = nil
-      end
-
-      if string_byte(data, #data) == 10 then
-        process_lines(data)
-      else
-        local nl_index = find_last_newline(data)
-        if not nl_index then
-          prev_line_content = data
-        else
-          prev_line_content = string_sub(data, nl_index + 1)
-          local stripped_with_newline = string_sub(data, 1, nl_index)
-          process_lines(stripped_with_newline)
-        end
-      end
-
-    end
-
-    local err_cb = function(err, data)
-      if err then
-        assert(not err)
-        finish()
-      end
-      if not data then
-        return
-      end
-      write_cb(data)
-    end
-
-    output_pipe:read_start(read_cb)
-    error_pipe:read_start(err_cb)
-  end, placeholder)
-
+  local raw_async_act = libuv.spawn_reload_cmd_action(opts, placeholder)
   return M.set_fzf_interactive(opts, raw_async_act, placeholder)
 end
 
@@ -508,26 +371,32 @@ M.set_fzf_interactive_cb = function(opts)
   local uv = vim.loop
   local raw_async_act = require("fzf.actions").raw_async_action(function(pipe, args)
 
-    local results = opts._reload_action(args[1])
+    coroutine.wrap(function()
 
-    local close_pipe = function()
-      if pipe and not uv.is_closing(pipe) then
-        uv.close(pipe)
-        pipe = nil
+      local co = coroutine.running()
+      local results = opts._reload_action(args[1])
+
+      local close_pipe = function()
+        if pipe and not uv.is_closing(pipe) then
+          uv.close(pipe)
+          pipe = nil
+        end
+        coroutine.resume(co)
       end
-    end
 
-    if type(results) == 'table' then
-      for _, entry in ipairs(results) do
-        uv.write(pipe, entry .. "\n", function(err)
-          if err then
+      if type(results) == 'table' and not vim.tbl_isempty(results) then
+        uv.write(pipe,
+          vim.tbl_map(function(x) return x.."\n" end, results),
+          function(_)
             close_pipe()
-          end
-        end)
+          end)
+        -- wait for write to finish
+        coroutine.yield()
       end
-    end
+      -- does nothing if write finished successfully
+      close_pipe()
 
-    close_pipe()
+    end)()
   end, placeholder)
 
   return M.set_fzf_interactive(opts, raw_async_act, placeholder)
@@ -562,9 +431,10 @@ M.set_fzf_interactive = function(opts, act_cmd, placeholder)
     -- around the place holder
     opts.fzf_fn = {}
     if opts.exec_empty_query or (query and #query>0) then
-      opts.fzf_fn = require("fzf.helpers").cmd_line_transformer(
-        act_cmd:gsub(placeholder, vim.fn.shellescape(query)),
-        function(x) return x end)
+      opts.fzf_fn = libuv.spawn_nvim_fzf_cmd(
+        { cmd = act_cmd:gsub(placeholder,
+          #query>0 and utils.lua_escape(vim.fn.shellescape(query)) or "''"),
+          cwd = opts.cwd, pid_cb = opts._pid_cb })
     end
     opts.fzf_opts['--phony'] = ''
     opts.fzf_opts['--query'] = vim.fn.shellescape(query)
@@ -618,9 +488,9 @@ M.my_make_entry_file = function(opts, x)
   local directory = path.parent(file, false)
   
   if directory then
-    ret[#ret+1] = string.format('%-50s  | %s', path.tail(file), directory)
+    ret[#ret+1] = string.format(' %-50s  | %s', path.tail(file), directory)
   else
-    ret[#ret+1] = string.format('%-50s', path.tail(file), directory)
+    ret[#ret+1] = string.format(' %-50s', path.tail(file), directory)
   end
   return table.concat(ret)
 end
@@ -667,7 +537,7 @@ M.my_fzf_files = function(opts)
         end
       end
     end
-    
+    vim.cmd("normal! m'")
     actions.act(opts.actions, selected, opts)
 
   end)()

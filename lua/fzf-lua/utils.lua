@@ -8,11 +8,36 @@ end
 
 local M = {}
 
--- invisible unicode char as icon|git separator
--- this way we can split our string by space
--- this causes "invalid escape sequence" error
--- local nbsp = "\u{00a0}"
-M.nbsp = " "
+-- sets an invisible unicode character as icon seaprator
+-- the below was reached after many iterations, a short summary of everything
+-- that was tried and why it failed:
+--
+-- nbsp, U+00a0: the original separator, fails with files that contain nbsp
+-- nbsp + zero-width space (U+200b): works only with `sk` (`fzf` shows <200b>)
+-- word joiner (U+2060): display works fine, messes up fuzzy search highlights
+-- line separator (U+2028), paragraph separator (U+2029): created extra space
+-- EN space (U+2002): seems to work well
+--
+-- For more unicode SPACE options see:
+-- http://unicode-search.net/unicode-namesearch.pl?term=SPACE&.submit=Search
+
+-- DO NOT USE '\u{}' escape, it will fail with
+-- "invalid escape sequence" if Lua < 5.3
+-- '\x' escape sequence requires Lua 5.2
+-- M.nbsp = "\xc2\xa0"    -- "\u{00a0}"
+M.nbsp = "\xe2\x80\x82"   -- "\u{2002}"
+
+-- Lua 5.1 compatibility, not sure if required since we're running LuaJIT
+-- but it's harmless anyways since if the '\x' escape worked it will do nothing
+-- https://stackoverflow.com/questions/29966782/how-to-embed-hex-values-in-a-lua-string-literal-i-e-x-equivalent
+if _VERSION and type(_VERSION) == 'string' then
+  local ver= tonumber(_VERSION:match("%d+.%d+"))
+  if ver< 5.2 then
+    M.nbsp = M.nbsp:gsub("\\x(%x%x)",
+      function (x) return string.char(tonumber(x,16))
+    end)
+  end
+end
 
 M._if = function(bool, a, b)
     if bool then
@@ -83,6 +108,13 @@ function M.sk_escape(str)
   if not str then return str end
   return str:gsub('["`]', function(x)
     return '\\' .. x
+  end)
+end
+
+function M.lua_escape(str)
+  if not str then return str end
+  return str:gsub('[%%]', function(x)
+    return '%' .. x
   end)
 end
 
@@ -295,6 +327,18 @@ function M.is_term_buffer(bufnr)
   return M.is_term_bufname(bufname)
 end
 
+function M.buffer_is_dirty(bufnr, warn)
+  bufnr = tonumber(bufnr) or vim.api.nvim_get_current_buf()
+  local info = bufnr and vim.fn.getbufinfo(bufnr)[1]
+  if info and info.changed ~= 0 then
+    if warn then
+      M.warn(('buffer %d has unsaved changes "%s"'):format(bufnr, info.name))
+    end
+    return true
+  end
+  return false
+end
+
 function M.winid_from_tab_buf(tabnr, bufnr)
   for _, w in ipairs(vim.api.nvim_tabpage_list_wins(tabnr)) do
     if bufnr == vim.api.nvim_win_get_buf(w) then
@@ -326,7 +370,7 @@ function M.zz()
   end
 end
 
-function M.win_execute(winid, func)
+function M.nvim_win_call(winid, func)
   vim.validate({
     winid = {
       winid, function(w)
@@ -410,6 +454,16 @@ function M.io_system(cmd, use_lua_io)
   end
 end
 
+local uv = vim.loop
+function M.process_kill(pid, signal)
+  if not pid or not tonumber(pid) then return false end
+  if type(uv.os_getpriority(pid)) == 'number' then
+    uv.kill(pid, signal or 9)
+    return true
+  end
+  return false
+end
+
 function M.fzf_bind_to_neovim(key)
   local conv_map  = {
     ['alt'] = 'A',
@@ -421,6 +475,16 @@ function M.fzf_bind_to_neovim(key)
     key = key:gsub(k, v)
   end
   return ("<%s>"):format(key)
+end
+
+function M.git_version()
+  local out = M.io_system("git --version")
+  return tonumber(out:match("(%d+.%d+)."))
+end
+
+function M.find_version()
+  local out, rc = M.io_systemlist("find --version")
+  return rc==0 and tonumber(out[1]:match("(%d+.%d+)")) or nil
 end
 
 return M

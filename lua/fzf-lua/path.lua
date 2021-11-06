@@ -111,47 +111,64 @@ function M.shorten(path, max_length)
   end
 end
 
-local function strsplit(inputstr, sep)
-  local t={}
-  for str in string.gmatch(inputstr, "([^"..sep.."]+)") do
-    table.insert(t, str)
-  end
-  return t
+local function lastIndexOf(haystack, needle)
+  local i=haystack:match(".*"..needle.."()")
+  if i==nil then return nil else return i-1 end
 end
 
---[[ local function lastIndexOf(haystack, needle)
-    local i, j
-    local k = 0
-    repeat
-        i = j
-        j, k = string.find(haystack, needle, k + 1, true)
-    until j == nil
-    return i
-end ]]
+local function stripBeforeLastOccurrenceOf(str, sep)
+  local idx = lastIndexOf(str, sep) or 0
+  return str:sub(idx+1), idx
+end
 
-local function lastIndexOf(haystack, needle)
-    local i=haystack:match(".*"..needle.."()")
-    if i==nil then return nil else return i-1 end
+function M.entry_to_location(entry)
+  local uri, line, col = entry:match("^(.*://.*):(%d+):(%d+):")
+  line = line and tonumber(line-1) or 0
+  col = col and tonumber(col) or 1
+  return {
+    stripped = entry,
+    line = line+1,
+    col = col,
+    uri = uri,
+    range = {
+      start = {
+        line = line,
+        character = col,
+      }
+    }
+  }
 end
 
 function M.entry_to_file(entry, cwd)
+  -- Remove ansi coloring and prefixed icons
   entry = utils.strip_ansi_coloring(entry)
-  local sep = ":"
-  local s = strsplit(entry, sep)
-  local file = s[1]:match("[^"..utils.nbsp.."]*$")
-  -- entries from 'buffers'
-  local bufnr = s[1]:match("%[(%d+)")
-  local idx = lastIndexOf(s[1], utils.nbsp) or 0
-  local noicons = string.sub(entry, idx+1)
+  local stripped, idx = stripBeforeLastOccurrenceOf(entry, utils.nbsp)
+  -- entries from 'buffers' contain '[<bufnr>]'
+  -- buffer placeholder always comes before the nbsp
+  local bufnr = idx>1 and entry:sub(1, idx):match("%[(%d+)") or nil
+  if not bufnr and stripped:match("^%a+://") then
+    -- Issue #195, when using nvim-jdtls
+    -- https://github.com/mfussenegger/nvim-jdtls
+    -- LSP entries inside .jar files appear as URIs
+    -- 'jdt://' which can then be opened with
+    -- 'vim.lsp.util.jump_to_location' or
+    -- 'lua require('jdtls').open_jdt_link(vim.fn.expand('jdt://...'))'
+    -- Convert to location item so we can use 'jump_to_location'
+    -- This can also work with any 'file://' prefixes
+    return M.entry_to_location(stripped)
+  end
+  local s = utils.strsplit(stripped, ":")
+  if not s[1] then return {} end
+  local file = s[1]
   local line = tonumber(s[2])
   local col  = tonumber(s[3])
   if cwd and #cwd>0 and not M.starts_with_separator(file) then
     file = M.join({cwd, file})
-    noicons = M.join({cwd, noicons})
+    stripped = M.join({cwd, stripped})
   end
   return {
+    stripped = stripped,
     bufnr = bufnr,
-    noicons = noicons,
     path = file,
     line = line or 1,
     col  = col or 1,
@@ -187,8 +204,10 @@ end
 
 function M.my_entry_to_file(entry, cwd)
   entry = utils.strip_ansi_coloring(entry)
+
   local sep = ":"
-  local s = strsplit(entry, sep)
+  local s = utils.strsplit(entry, sep)
+
   local file = s[1]:match("[^"..utils.nbsp.."]*$")
 
   local value = string.split(file, '|')
@@ -202,6 +221,7 @@ function M.my_entry_to_file(entry, cwd)
     file = M.join({cwd, file})
     noicons = M.join({cwd, noicons})
   end
+
   return {
     bufnr = -1,
     noicons = file,

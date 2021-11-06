@@ -37,9 +37,14 @@ local fzf_tags = function(opts)
       local line = 1
       local filepath = path.join({cwd, t.file})
       local pattern = utils.rg_escape(t.text:match("/(.*)/"))
-      -- do not escape '$' if it's the last pattern char
-      -- as ctags uses '$' at the end of short patterns
-      pattern = pattern:gsub("\\%$$", "%$")
+      -- ctags uses '$' at the end of short patterns
+      -- 'rg|grep' does not match these properly when
+      -- 'fileformat' isn't set to 'unix', when set to
+      -- 'dos' we need to prepend '$' with '\r$' with 'rg'
+      -- it is simpler to just ignore it compleley.
+      -- The commented line below is what we used before:
+      -- pattern = pattern:gsub("\\%$$", "%$")
+      pattern = pattern:gsub("\\%$$", "")
       if not pattern or not filepath then return line end
       local cmd = string.format('%s "%s" %s',
         grep_cmd, pattern,
@@ -66,21 +71,20 @@ local fzf_tags = function(opts)
 
     coroutine.wrap(function ()
       local co = coroutine.running()
-      local delimiter = string.char(9)
       local lines = vim.split(utils.read_file(opts.ctags_file), '\n', true)
       for _, line in ipairs(lines) do
         if not line:match'^!_TAG_' then
-          local fields = vim.split(line, delimiter, true)
-          if #fields >= 3 then
+          local name, file, text = line:match("^(.*)\t(.*)\t(/.*/)")
+          if name and file and text then
             if not opts.current_buffer_only or
-              current_file == path.join({cwd, fields[2]}) then
+              current_file == path.join({cwd, file}) then
               -- without vim.schedule `add_tag` would crash
               -- at any `vim.fn...` call
               vim.schedule(function()
                 add_tag({
-                  name = fields[1],
-                  file = fields[2],
-                  text = fields[3],
+                  name = name,
+                  file = file,
+                  text = text,
                 }, cb, co)
               end)
               -- pause here until we call coroutine.resume()

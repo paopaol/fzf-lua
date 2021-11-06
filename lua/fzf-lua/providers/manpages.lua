@@ -2,11 +2,11 @@ if not pcall(require, "fzf") then
   return
 end
 
-local fzf_helpers = require("fzf.helpers")
 local core = require "fzf-lua.core"
 local utils = require "fzf-lua.utils"
 local config = require "fzf-lua.config"
 local actions = require "fzf-lua.actions"
+local libuv = require "fzf-lua.libuv"
 
 
 local M = {}
@@ -33,14 +33,14 @@ M.manpages = function(opts)
 
   coroutine.wrap(function ()
 
-    -- local prev_act = action(function (args) end)
-
-    local fzf_fn = fzf_helpers.cmd_line_transformer(opts.cmd, function(x)
-      -- split by first occurence of ' - ' (spaced hyphen)
-      local man, desc = x:match("^(.-) %- (.*)$")
-      return string.format("%-45s %s",
-        utils.ansi_codes.magenta(man), desc)
-    end)
+    local fzf_fn = libuv.spawn_nvim_fzf_cmd(
+      { cmd = opts.cmd, cwd = opts.cwd, pid_cb = opts._pid_cb },
+      function(x)
+        -- split by first occurence of ' - ' (spaced hyphen)
+        local man, desc = x:match("^(.-) %- (.*)$")
+        return string.format("%-45s %s",
+          utils.ansi_codes.magenta(man), desc)
+      end)
 
     opts.fzf_opts['--no-multi'] = ''
     opts.fzf_opts['--preview-window'] = 'hidden:right:0'

@@ -297,7 +297,7 @@ require'fzf-lua'.setup {
       ["shift-down"]  = "preview-page-down",
       ["shift-up"]    = "preview-page-up",
     },
-  }
+  },
   -- use skim instead of fzf?
   -- https://github.com/lotabout/skim
   -- fzf_bin          = 'sk',
@@ -307,7 +307,7 @@ require'fzf-lua'.setup {
     -- set to '' for a non-value flag
     -- for raw args use `fzf_args` instead
     ['--ansi']        = '',
-    ['--prompt']      = ' >',
+    ['--prompt']      = '> ',
     ['--info']        = 'inline',
     ['--height']      = '100%',
     ['--layout']      = 'reverse',
@@ -348,7 +348,7 @@ require'fzf-lua'.setup {
       args            = "--color",
     },
     man = {
-      cmd             = "man -c %s | col -b",
+      cmd             = "man -c %s | col -bx",
     },
     builtin = {
       delay           = 100,          -- delay(ms) displaying the preview

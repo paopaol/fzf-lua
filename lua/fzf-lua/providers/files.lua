@@ -2,12 +2,22 @@ if not pcall(require, "fzf") then
   return
 end
 
-local fzf_helpers = require("fzf.helpers")
 local core = require "fzf-lua.core"
 local utils = require "fzf-lua.utils"
 local config = require "fzf-lua.config"
+local libuv = require "fzf-lua.libuv"
 
 local M = {}
+
+local function POSIX_find_compat(opts)
+  local ver = utils.find_version()
+  -- POSIX find does not have '--version'
+  -- we assume POSIX when 'ver==nil'
+  if not ver and opts:match("%-printf") then
+    utils.warn("POSIX find does not support the '-printf' option." ..
+      " Install 'fd' or set 'files.find_opts' to '-type f'.")
+  end
+end
 
 local get_files_cmd = function(opts)
   if opts.raw_cmd and #opts.raw_cmd>0 then
@@ -20,6 +30,7 @@ local get_files_cmd = function(opts)
   if vim.fn.executable("fd") == 1 then
     command = string.format('fd %s', opts.fd_opts)
   else
+    POSIX_find_compat(opts.find_opts)
     command = string.format('find -L . %s', opts.find_opts)
   end
   return command
@@ -32,8 +43,8 @@ M.files = function(opts)
 
   local command = get_files_cmd(opts)
 
-  opts.fzf_fn = fzf_helpers.cmd_line_transformer(
-    {cmd = command, cwd = opts.cwd},
+  opts.fzf_fn = libuv.spawn_nvim_fzf_cmd(
+    { cmd = command, cwd = opts.cwd, pid_cb = opts._pid_cb },
     function(x)
       return core.make_entry_file(opts, x)
     end)
@@ -62,7 +73,7 @@ M.files_resume = function(opts)
   opts._fzf_cli_args = ('--bind=change:execute-silent:%s'):
     format(vim.fn.shellescape(raw_act))
 
-  opts.fzf_fn = fzf_helpers.cmd_line_transformer(
+  opts.fzf_fn = libuv.spawn_nvim_fzf_cmd(
     {cmd = command, cwd = opts.cwd},
     function(x)
       return core.make_entry_file(opts, x)
@@ -77,11 +88,12 @@ M.my_files = function(opts)
 
   local command = get_files_cmd(opts)
 
-  opts.fzf_fn = fzf_helpers.cmd_line_transformer(
-    {cmd = command, cwd = opts.cwd},
+  opts.fzf_fn = libuv.spawn_nvim_fzf_cmd(
+    { cmd = command, cwd = opts.cwd, pid_cb = opts._pid_cb },
     function(x)
       return core.my_make_entry_file(opts, x)
     end)
+
 
   return core.my_fzf_files(opts)
 end

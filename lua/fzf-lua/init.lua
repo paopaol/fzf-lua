@@ -55,7 +55,6 @@ function M.setup(opts)
   globals = nil
 end
 
-M.fzf_files = require'fzf-lua.core'.fzf_files
 M.files = require'fzf-lua.providers.files'.files
 M.my_files = require'fzf-lua.providers.files'.my_files
 M.files_resume = require'fzf-lua.providers.files'.files_resume
@@ -110,10 +109,37 @@ M.lsp_code_actions = require'fzf-lua.providers.lsp'.code_actions
 M.lsp_document_diagnostics = require'fzf-lua.providers.lsp'.diagnostics
 M.lsp_workspace_diagnostics = require'fzf-lua.providers.lsp'.workspace_diagnostics
 
+
+-- exported modules
+local _modules = {
+  'win',
+  'core',
+  'path',
+  'utils',
+  'libuv',
+  'config',
+  'actions',
+}
+
+for _, m in ipairs(_modules) do
+  M[m] = require("fzf-lua." .. m)
+end
+
+-- API shortcuts
+M.fzf = require'fzf-lua.core'.fzf
+M.raw_fzf = require'fzf-lua.fzf'.raw_fzf
+
 M.builtin = function(opts)
   if not opts then opts = {} end
   opts.metatable = M
-  opts.metatable_exclude = { ["setup"] = false, ["fzf_files"] = false }
+  opts.metatable_exclude = {
+    ["setup"]   = false,
+    ["fzf"]     = false,
+    ["raw_fzf"] = false,
+  }
+  for _, m in ipairs(_modules) do
+    opts.metatable_exclude[m] = false
+  end
   return require'fzf-lua.providers.module'.metatable(opts)
 end
 
