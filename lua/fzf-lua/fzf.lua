@@ -140,7 +140,7 @@ function M.raw_fzf(contents, fzf_cli_args, opts)
   if contents then
     if type(contents) == "table" then
       if not vim.tbl_isempty(contents) then
-        write_cb(vim.tbl_map(function(x) return x.."\n" end, contents))
+        write_cb(vim.tbl_map(function(x) return tostring(x).."\n" end, contents))
       end
       finish(4)
     else

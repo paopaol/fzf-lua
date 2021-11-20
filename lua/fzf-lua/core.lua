@@ -342,8 +342,8 @@ M.fzf_files = function(opts)
       end
     end
 
-    vim.cmd("normal! m'")
     actions.act(opts.actions, selected, opts)
+    -- vim.cmd("normal! m'")
 
   end)()
 

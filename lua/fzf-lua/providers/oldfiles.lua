@@ -29,7 +29,8 @@ M.oldfiles = function(opts)
   end
 
   for _, file in ipairs(vim.v.oldfiles) do
-    if vim.loop.fs_stat(file) and not vim.tbl_contains(results, file) and file ~= current_file then
+    -- if vim.loop.fs_stat(file) and not vim.tbl_contains(results, file) and file ~= current_file then
+    if vim.loop.fs_stat(file) and file ~= current_file then
       table.insert(results, file)
     end
   end

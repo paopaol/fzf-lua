@@ -145,7 +145,7 @@ local strip_borderchars_hl = function(border)
     default = config.globals.winopts._borderchars[border]
   end
   if not default then
-    default = config.globals.winopts._borderchars['rounded']
+    default = config.globals.winopts._borderchars['none']
   end
   if not border or type(border) ~= 'table' or #border<8 then
     return default

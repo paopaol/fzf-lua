@@ -29,7 +29,7 @@ M.globals = {
     width               = 0.80,
     row                 = 0.35,
     col                 = 0.55,
-    border              = 'rounded',
+    border              = 'none',
     fullscreen          = false,
     hl = {
       normal            = 'Normal',
@@ -63,7 +63,7 @@ M.globals = {
       ["none"]            = {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ' },
       ["single"]          = {'┌', '─', '┐', '│', '┘', '─', '└', '│' },
       ["double"]          = {'╔', '═', '╗', '║', '╝', '═', '╚', '║' },
-      ["rounded"]         = {'╭', '─', '╮', '│', '╯', '─', '╰', '│' },
+      ["rounded"]         = {'', '', '', '', '', '', '', '' },
     },
     on_create = function()
       -- vim.cmd("set winhl=Normal:Normal,FloatBorder:Normal")

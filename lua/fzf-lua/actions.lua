@@ -64,6 +64,7 @@ M.vimcmd = function(vimcmd, selected)
 end
 
 M.vimcmd_file = function(vimcmd, selected, opts)
+  vim.cmd("normal! m'")
   local curbuf = vim.api.nvim_buf_get_name(0)
   for i = 1, #selected do
     local entry = path.entry_to_file(selected[i])
