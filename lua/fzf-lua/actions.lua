@@ -11,9 +11,7 @@ M.expect = function(actions)
   if not actions then return nil end
   local keys = {}
   for k, v in pairs(actions) do
-    if k ~= _default_action and v ~= false then
-      table.insert(keys, k)
-    end
+    if k ~= _default_action and v ~= false then table.insert(keys, k) end
   end
   if #keys > 0 then
     return string.format("--expect=%s", table.concat(keys, ','))
@@ -31,18 +29,14 @@ M.normalize_selected = function(actions, selected)
   -- and makes sure 'selected' contains only items or {}
   -- so it can always be enumerated safely
   local action = _default_action
-  if utils.tbl_length(actions)>1 then
+  if utils.tbl_length(actions) > 1 then
     -- keybind should be in item #1
     -- default keybind is an empty string
     -- so we leave that as "default"
-    if #selected[1] > 0 then
-      action = selected[1]
-    end
+    if #selected[1] > 0 then action = selected[1] end
     -- entries are items #2+
     local entries = {}
-    for i = 2, #selected do
-      table.insert(entries, selected[i])
-    end
+    for i = 2, #selected do table.insert(entries, selected[i]) end
     return action, entries
   else
     return action, selected
@@ -52,9 +46,7 @@ end
 M.act = function(actions, selected, opts)
   if not actions or not selected then return end
   local action, entries = M.normalize_selected(actions, selected)
-  if actions[action] then
-    actions[action](entries, opts)
-  end
+  if actions[action] then actions[action](entries, opts) end
 end
 
 M.vimcmd = function(vimcmd, selected)
@@ -70,7 +62,7 @@ M.vimcmd_file = function(vimcmd, selected, opts)
     local entry = path.entry_to_file(selected[i])
     -- Java LSP entries, 'jdt://...'
     if entry.uri then
-      vim.cmd("normal! m`")
+      vim.cmd("normal! m'")
       vim.lsp.util.jump_to_location(entry)
       vim.cmd("norm! zvzz")
     else
@@ -79,22 +71,22 @@ M.vimcmd_file = function(vimcmd, selected, opts)
       if not path.starts_with_separator(fullpath) then
         fullpath = path.join({opts.cwd or vim.loop.cwd(), fullpath})
       end
-      if vimcmd == 'e' and curbuf ~= fullpath
-         and not vim.o.hidden and
-         utils.buffer_is_dirty(nil, true) then
-         -- warn the user when trying to switch from a dirty buffer
-         -- when `:set nohidden`
-         return
+      if vimcmd == 'e' and curbuf ~= fullpath and not vim.o.hidden and
+          utils.buffer_is_dirty(nil, true) then
+        -- warn the user when trying to switch from a dirty buffer
+        -- when `:set nohidden`
+        return
       end
-      if vimcmd ~= "e" or curbuf ~= fullpath then
-        vim.cmd(vimcmd .. " " .. vim.fn.fnameescape(entry.path))
+
+      local cmd = ""
+      if entry.line > 1 then
+        cmd = string.format("%s +%d %s", vimcmd, entry.line,
+                            vim.fn.fnameescape(entry.path))
+      else
+        cmd = string.format("%s %s", vimcmd, vim.fn.fnameescape(entry.path))
       end
-      if entry.line > 1 or entry.col > 1 then
-        -- add current location to jumplist
-        vim.cmd("normal! m`")
-        vim.api.nvim_win_set_cursor(0, {tonumber(entry.line), tonumber(entry.col)-1})
-        vim.cmd("norm! zvzz")
-      end
+      vim.cmd(cmd)
+      vim.cmd("norm! zvzz")
     end
   end
 end
@@ -129,9 +121,11 @@ M.file_sel_to_qf = function(selected, _)
   local qf_list = {}
   for i = 1, #selected do
     -- check if the file contains line
-    local file, line, col, text = selected[i]:match("^([^ :]+):(%d+):(%d+):(.*)")
+    local file, line, col, text =
+        selected[i]:match("^([^ :]+):(%d+):(%d+):(.*)")
     if file and line and col then
-      table.insert(qf_list, {filename = file, lnum = line, col = col, text = text})
+      table.insert(qf_list,
+                   {filename = file, lnum = line, col = col, text = text})
     else
       table.insert(qf_list, {filename = selected[i], lnum = 1, col = 1})
     end
@@ -141,7 +135,7 @@ M.file_sel_to_qf = function(selected, _)
 end
 
 M.file_edit_or_qf = function(selected, opts)
-  if #selected>1 then
+  if #selected > 1 then
     return M.file_sel_to_qf(selected, opts)
   else
     return M.file_edit(selected, opts)
@@ -152,9 +146,7 @@ end
 M.vimcmd_buf = function(vimcmd, selected, _)
   for i = 1, #selected do
     local bufnr = string.match(selected[i], "%[(%d+)")
-    if vimcmd == 'b'
-      and not vim.o.hidden and
-      utils.buffer_is_dirty(nil, true) then
+    if vimcmd == 'b' and not vim.o.hidden and utils.buffer_is_dirty(nil, true) then
       -- warn the user when trying to switch from a dirty buffer
       -- when `:set nohidden`
       return
@@ -261,9 +253,7 @@ M.set_filetype = function(selected)
 end
 
 M.packadd = function(selected)
-  for i = 1, #selected do
-    vim.cmd("packadd " .. selected[i])
-  end
+  for i = 1, #selected do vim.cmd("packadd " .. selected[i]) end
 end
 
 M.help = function(selected)
@@ -296,7 +286,6 @@ M.man_tab = function(selected)
   M.vimcmd(vimcmd, selected)
 end
 
-
 M.git_switch = function(selected, opts)
   local cmd = path.git_cwd("git checkout ", opts.cwd)
   local git_ver = utils.git_version()
@@ -326,7 +315,7 @@ M.git_checkout = function(selected, opts)
   local commit_hash = selected[1]:match("[^ ]+")
   if vim.fn.input("Checkout commit " .. commit_hash .. "? [y/n] ") == "y" then
     local current_commit = vim.fn.systemlist(cmd_cur_commit)
-    if(commit_hash == current_commit) then return end
+    if (commit_hash == current_commit) then return end
     local output = vim.fn.systemlist(cmd_checkout .. commit_hash)
     if utils.shell_error() then
       utils.err(unpack(output))
@@ -346,9 +335,9 @@ M.git_buf_edit = function(selected, opts)
   local commit_hash = selected[1]:match("[^ ]+")
   local git_file_contents = vim.fn.systemlist(cmd .. commit_hash .. ":" .. file)
   local buf = vim.api.nvim_create_buf(true, true)
-  local file_name = string.gsub(file,"$","[" .. commit_hash .. "]")
-  vim.api.nvim_buf_set_lines(buf,0,0,true,git_file_contents)
-  vim.api.nvim_buf_set_name(buf,file_name)
+  local file_name = string.gsub(file, "$", "[" .. commit_hash .. "]")
+  vim.api.nvim_buf_set_lines(buf, 0, 0, true, git_file_contents)
+  vim.api.nvim_buf_set_name(buf, file_name)
   vim.api.nvim_buf_set_option(buf, 'buftype', 'nofile')
   vim.api.nvim_buf_set_option(buf, 'bufhidden', 'wipe')
   vim.api.nvim_buf_set_option(buf, 'filetype', buffer_filetype)

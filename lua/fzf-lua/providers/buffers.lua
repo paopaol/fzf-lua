@@ -202,8 +202,45 @@ end
 
 M.blines = function(opts)
   opts = config.normalize_opts(opts, config.globals.blines)
-  opts.current_buffer_only = true
-  M.buffer_lines(opts)
+  M.current_buffer(opts)
+end
+
+M.current_buffer = function(opts)
+  if not opts then return end
+
+ local buffer = vim.api.nvim_get_current_buf()
+
+  coroutine.wrap(function()
+    local data = api.nvim_buf_get_lines(buffer, 0, -1, false)
+    local items = {}
+    for l, text in ipairs(data) do
+	table.insert(items, ("%-6s %s"):format(l, text))
+    end
+
+    -- ignore bufnr when searching
+    -- disable multi-select
+    -- opts.fzf_opts["--no-multi"] = ''
+    opts.fzf_opts["--preview-window"] = 'hidden:right:0'
+    opts.fzf_opts["--delimiter"] = vim.fn.shellescape(']')
+    opts.fzf_opts["--nth"] = '2,-1'
+
+    if opts.search and #opts.search>0 then
+      opts.fzf_opts['--query'] = vim.fn.shellescape(opts.search)
+    end
+
+    local selected = core.fzf(opts, items)
+    if not selected then return end
+
+    local line = tonumber(selected[2]:match("(%d+)"))
+
+    vim.cmd("normal! m'")
+
+    if line then
+      vim.api.nvim_win_set_cursor(0, {line, 0})
+      vim.cmd("norm! zz")
+    end
+
+  end)()
 end
 
 
@@ -250,7 +287,7 @@ M.buffer_lines = function(opts)
 
     -- ignore bufnr when searching
     -- disable multi-select
-    opts.fzf_opts["--no-multi"] = ''
+    -- opts.fzf_opts["--no-multi"] = ''
     opts.fzf_opts["--preview-window"] = 'hidden:right:0'
     opts.fzf_opts["--delimiter"] = vim.fn.shellescape(']')
     opts.fzf_opts["--nth"] = '2,-1'
