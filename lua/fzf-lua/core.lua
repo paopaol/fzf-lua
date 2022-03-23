@@ -247,6 +247,8 @@ M.make_entry_file = function(opts, x)
   end
   if opts.cwd and #opts.cwd > 0 then
     -- TODO: does this work if there are ANSI escape codes in x?
+    -- yes. not work
+
     x = path.relative(x, opts.cwd)
   end
   if opts.file_icons then
@@ -479,14 +481,14 @@ M.my_make_entry_file = function(opts, x)
     for i=1,#indicators do
       icon = indicators:sub(i,i)
       local git_icon = config.globals.git.icons[icon]
- 
+
       ret[#ret+1] = icon
     end
     ret[#ret+1] = utils.nbsp
   end
 
   local directory = path.parent(file, false)
-  
+
   if directory then
     ret[#ret+1] = string.format(' %-50s  | %s', path.tail(file), directory)
   else

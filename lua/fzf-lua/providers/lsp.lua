@@ -2,6 +2,7 @@ if not pcall(require, "fzf") then
   return
 end
 
+local path = require "fzf-lua.path"
 local raw_action = require("fzf.actions").raw_action
 local raw_async_action = require("fzf.actions").raw_async_action
 local core = require "fzf-lua.core"
@@ -173,7 +174,13 @@ local function set_lsp_fzf_fn(opts)
         opts.lsp_handler.method, err.message or "nil"))
     else
       local results = {}
-      local cb = function(text) table.insert(results, text) end
+      local cb = function(text)
+        if opts.cwd and #opts.cwd > 0 then
+          -- TODO: does this work if there are ANSI escape codes in x?
+          text = path.relative(text, opts.cwd)
+        end
+	table.insert(results, text)
+      end
       for _, v in pairs(lsp_results) do
         if v.result then
           opts.lsp_handler.handler(opts, cb, opts.lsp_handler.method, v.result)
@@ -437,9 +444,9 @@ M.diagnostics = function(opts)
 
   local preprocess_diag = function(diag, bufnr)
     local filename = vim.api.nvim_buf_get_name(bufnr)
-    local start = diag.range['start']
-    local finish = diag.range['end']
-    local row = start.line
+    local start = {character = diag.col, line = diag.lnum}
+    local finish = {character = diag.end_col, line = diag.end_lnum}
+    local row =  start.line
     local col = start.character
 
     local buffer_diag = {
@@ -461,7 +468,7 @@ M.diagnostics = function(opts)
       local co = coroutine.running()
 
       local buffer_diags = opts.diag_all and vim.lsp.diagnostic.get_all() or
-        {[current_buf] = vim.lsp.diagnostic.get(current_buf, opts.client_id)}
+        {[current_buf] = vim.diagnostic.get(current_buf)}
       local has_diags = false
       for _, diags in pairs(buffer_diags) do
         if #diags > 0 then has_diags = true end
