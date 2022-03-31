@@ -210,7 +210,7 @@ function M.my_entry_to_file(entry, cwd)
 
   local file = s[1]:match("[^"..utils.nbsp.."]*$")
 
-  local value = string.split(file, '|')
+  local value = utils.strsplit(file, '|')
   if #value == 2 then
     file = vim.trim(value[2]) .. vim.trim(value[1])
   else
